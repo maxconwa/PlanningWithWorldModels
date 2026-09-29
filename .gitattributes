@@ -1,3 +1,6 @@
 *.pkl filter=lfs diff=lfs merge=lfs -text
 *.xplane.pb filter=lfs diff=lfs merge=lfs -text
 *.trace.json.gz filter=lfs diff=lfs merge=lfs -text
+
+# Everything under outputs/ (training runs and Slurm logs) lives in LFS.
+outputs/** filter=lfs diff=lfs merge=lfs -text

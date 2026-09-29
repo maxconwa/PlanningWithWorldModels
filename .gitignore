@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 
 # Replay buffer data, too large for the repository.
-tetris_400m_latest/replay_old/
+outputs/train/tetris_400m_latest/replay_old/
 
 # Exceed GitHub's 2 GiB LFS file size limit.
-tetris/ckpt/*/agent.pkl
-tetris_400m_latest/ckpt/*/agent.pkl
+outputs/train/tetris/ckpt/*/agent.pkl
+outputs/train/tetris_400m_latest/ckpt/*/agent.pkl
