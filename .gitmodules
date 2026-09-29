@@ -1,0 +1,6 @@
+[submodule "third_party/dreamerv3"]
+	path = third_party/dreamerv3
+	url = https://github.com/danijar/dreamerv3
+[submodule "third_party/open-dreamer"]
+	path = third_party/open-dreamer
+	url = https://github.com/next-state/open-dreamer

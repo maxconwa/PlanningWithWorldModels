@@ -8,7 +8,7 @@ import pathlib
 import pickle
 import sys
 
-DREAMER = pathlib.Path('/home/max/claude/third_party/dreamerv3')
+DREAMER = pathlib.Path(__file__).resolve().parent / 'third_party' / 'dreamerv3'
 sys.path.insert(0, str(DREAMER))
 
 import elements  # noqa: E402
