@@ -4,8 +4,6 @@ __pycache__/
 # Replay buffer data, too large for the repository.
 tetris_400m_latest/replay_old/
 
-# Exceeds GitHub's LFS file size limit and is not stored in the repository.
-tetris_400m_latest/ckpt/*/agent.pkl
-
-# Stored as agent.pkl.part-* chunks; rebuild with ./reassemble.sh.
+# Exceed GitHub's 2 GiB LFS file size limit.
 tetris/ckpt/*/agent.pkl
+tetris_400m_latest/ckpt/*/agent.pkl
