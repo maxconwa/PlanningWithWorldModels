@@ -21,6 +21,9 @@ simulator, and search runs over imagined futures instead of the real game.
   predicts at every node.
 - `dream_atari.py`: an interactive window for playing inside the world
   model's imagination.
+- `watch.py`: a window showing the trained agent play the real environment,
+  planning each action with tree search (`--planner gumbel` or `puct`) or
+  acting with its policy (`--planner policy`).
 
 Run the scripts from the repository root:
 

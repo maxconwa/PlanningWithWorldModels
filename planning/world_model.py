@@ -44,6 +44,20 @@ def seeder(seed):
   return rng, lambda: jax.device_put(rng.integers(0, 2 ** 32, 2, np.uint32))
 
 
+def make_env(config, index, **overrides):
+  """DreamerV3's make_env, plus the custom environments train.py adds."""
+  import train
+  return train.make_env(config, index, **overrides)
+
+
+def action_names(env):
+  """Names of the policy's actions: the env's ACTIONS, or its ALE action set."""
+  try:
+    return list(env.ACTIONS)
+  except (AttributeError, ValueError):  # Wrappers raise ValueError.
+    return [env.ACTION_MEANING[int(a)] for a in env.actionset]
+
+
 def build(logdir, env_seed=None):
   """Load the checkpoint and return the model with a jitted observe step.
 
@@ -57,13 +71,11 @@ def build(logdir, env_seed=None):
                     if k not in Options.__dataclass_fields__})
 
   from dreamerv3.agent import Agent, sample
-  from dreamerv3.main import make_env
 
   env = make_env(config, 0, **({} if env_seed is None else {'seed': env_seed}))
   obs_space = {k: v for k, v in env.obs_space.items() if not k.startswith('log/')}
   act_space = {k: v for k, v in env.act_space.items() if k != 'reset'}
-  # The policy's action i is the i-th entry of the env's ALE action set.
-  actions = [env.ACTION_MEANING[int(a)] for a in env.actionset]
+  actions = action_names(env)
 
   # Build the bare ninjax model, skipping the training runner that would
   # allocate a second copy of the parameters and the optimizer state.

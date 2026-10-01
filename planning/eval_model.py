@@ -36,13 +36,12 @@ import argparse
 import json
 import time
 
-from world_model import build, eval_path, logdir_arg, seeder
+from world_model import build, eval_path, logdir_arg, make_env, seeder
 from search import PUCT, make_search, uct_args, uct_options
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from dreamerv3.main import make_env
 
 
 def evaluate(parts, envs, episodes, seed, plan=None):
@@ -84,7 +83,7 @@ def evaluate(parts, envs, episodes, seed, plan=None):
       r = results[-1]
       print(f'[{len(results):>{len(str(episodes))}}/{episodes}] '
             f'score {r["score"]:g}   length {r["length"]}'
-            + ('   (hit the step limit)' if r['truncated'] else ''), flush=True)
+            + ('   (hit the time limit)' if r['truncated'] else ''), flush=True)
       if started < episodes:
         started += 1
       else:
@@ -125,7 +124,7 @@ def report(results, logdir, elapsed, steps, limit):
   print(f'         {(scores > 0).mean():.0%} of games scored above zero')
   print(f'Length   mean {lengths.mean():.0f}   median {np.median(lengths):.0f}   '
         f'min {lengths.min()}   max {lengths.max()}   '
-        f'({truncated} hit the {limit}-step limit)')
+        f'({truncated} hit the {limit} limit)')
   print('\nScore distribution')
   histogram(scores)
 
@@ -170,12 +169,18 @@ def main():
   parts = build(args.logdir)
   parts['env'].close()
   config = parts['config']
-  repeat = config.env[config.task.split('_', 1)[0]]['repeat']
+  # Custom environments' actions take a varying number of frames, so their
+  # limit stays in frames.
+  suite = config.task.split('_', 1)[0]
+  repeat = None if suite == 'custom' else config.env[suite]['repeat']
+  if args.max_steps is not None and repeat is None:
+    parser.error('--max-steps needs an environment with a fixed frame repeat')
   overrides = {} if args.max_steps is None else {
       'length': args.max_steps * repeat}
   envs = [make_env(config, i, seed=int(rng.integers(0, 2 ** 31)), **overrides)
           for i in range(min(args.envs, args.episodes))]
-  limit = envs[0].length // repeat
+  limit = (f'{envs[0].length // repeat}-step' if repeat else
+           f'{envs[0].length}-frame')
   print(f'{parts["task"]} ({args.logdir.name}, checkpoint {parts["ckpt"]}): '
         f'{args.episodes} episodes on {len(envs)} emulators')
 

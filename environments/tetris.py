@@ -7,6 +7,11 @@ piece cannot reach, past a wall or blocked by the stack, is clamped to the
 nearest one it can, and a rotation the game refuses for lack of room does
 nothing.
 
+The game itself deals a fixed cycle of 16 pieces, the same in every episode.
+With random_pieces (the default) the environment instead deals each piece
+after the first as a uniformly random type, by writing the piece counter the
+game picks pieces from. The first piece is always the O piece.
+
 Every other option is DreamerV3's Atari environment, read from the atari
 section of its config (--env.atari.gray False and so on). Each action runs
 the joystick in closed loop against the game's RAM, so it lands where it
@@ -17,7 +22,8 @@ RAM layout used here (Tetris 2600):
   0x60-0x63  column bit of each cell in the left half: column j is bit 5 - j
   0x64-0x67  column bit of each cell in the right half: column 6 + k is bit k
   0x6b       piece shape and rotation; rotating adds 4 to bits 2-3
-  0x6e       pieces spawned so far, which changes when a piece locks
+  0x6e       piece counter, 0-63: a new piece increments it and is entry
+             counter % 16 of PIECES, so it also changes when a piece locks
 """
 
 import ale_py
@@ -35,16 +41,21 @@ BLOCKED = 12
 SETTLED = 8
 # Frames to wait for a new piece's cells to appear in RAM.
 SPAWN = 30
+# The game's piece table, as the entries holding each piece type (O, S, Z, T,
+# L, J, I); entries of one type differ in the piece's starting rotation.
+PIECES = ((0, 1), (2, 3), (4, 5), (6, 7, 8, 9), (10, 11), (12, 13), (14, 15))
 
 
 class Tetris(atari.Atari):
 
   OPTIONS = 'atari'
   COLUMNS = 10
+  ACTIONS = tuple(f'column {c}' for c in range(COLUMNS)) + ('rotate',)
 
-  def __init__(self, task, actions='needed', **kwargs):
+  def __init__(self, task, actions='needed', random_pieces=True, **kwargs):
     del task, actions
     super().__init__('tetris', **kwargs)
+    self.random_pieces = random_pieces
     self.placed = None
 
   @property
@@ -55,7 +66,15 @@ class Tetris(atari.Atari):
 
   def step(self, action):
     if action['reset'] or self.done:
-      return super().step({'reset': True})
+      super().step({'reset': True})
+      self.reward, self.over = 0.0, False
+      # After a reset, RAM reads show the previous game until a frame runs,
+      # and the game sets up its first piece over its first few frames.
+      self._frame(NOOP)
+      if self._spawned():
+        self._frame(NOOP)
+      self._deal()
+      return self._obs(0.0, is_first=True)
     act = int(action['action'])
     assert 0 <= act <= self.COLUMNS, act
     self.reward, self.over = 0.0, False
@@ -65,6 +84,8 @@ class Tetris(atari.Atari):
         self._rotate()
       else:
         self._place(act)
+      if self._locked():
+        self._deal()
     last = self.over or self.duration >= self.length
     self.done = last
     return self._obs(self.reward, is_last=last, is_terminal=self.over)
@@ -116,6 +137,13 @@ class Tetris(atari.Atari):
       if not self._frame(NOOP):
         return False
     return not self.over
+
+  def _deal(self):
+    """Pick the type of the next piece the game spawns, if random_pieces."""
+    if self.random_pieces:
+      entries = PIECES[self.rng.integers(len(PIECES))]
+      entry = entries[self.rng.integers(len(entries))]
+      self.ale.setRAM(0x6e, (entry - 1) % 64)
 
   def _locked(self):
     return self.ale.getRAM()[0x6e] != self.pieces

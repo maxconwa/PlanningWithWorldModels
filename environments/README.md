@@ -15,8 +15,10 @@ all other flags are DreamerV3's.
   train in minutes, as a check that a world model learns at all.
 - `tetris`: Atari Tetris with placement actions. Actions 0-9 put the falling
   piece's leftmost cell in that column and drop it; action 10 rotates it
-  once. All other options are DreamerV3's Atari ones, set with
-  `--env.atari.*`. Trained by `slurm/tetris_placement.slurm`.
+  once. Pieces are random (`random_pieces=True`); the game on its own deals
+  a fixed 16-piece cycle, which an agent can memorise. All other options are
+  DreamerV3's Atari ones, set with `--env.atari.*`. Trained by
+  `slurm/tetris_placement.slurm`.
 
 ## Playing by hand
 

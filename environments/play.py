@@ -53,6 +53,32 @@ def options(name, overrides):
   return opts
 
 
+def render(env, obs, scale, screen=True):
+  """The observation, after the emulator screen for Atari environments when
+  `screen` is set."""
+  image = obs['image']
+  if image.shape[-1] == 1:
+    image = np.repeat(image, 3, -1)
+  panels = [Image.fromarray(image).resize(
+      (image.shape[1] * scale, image.shape[0] * scale), Image.NEAREST)]
+  if screen:
+    try:
+      screen = Image.fromarray(env.ale.getScreenRGB())
+    except (AttributeError, ValueError):  # DreamerV3's wrappers raise these.
+      screen = None
+  if screen:
+    panels.insert(0, screen.resize(
+        (screen.width * 2, screen.height * 2), Image.NEAREST))
+  height = max(p.height for p in panels)
+  canvas = Image.new(
+      'RGB', (sum(p.width for p in panels) + 8 * (len(panels) - 1), height))
+  x = 0
+  for panel in panels:
+    canvas.paste(panel, (x, (height - panel.height) // 2))
+    x += panel.width + 8
+  return canvas
+
+
 class Player:
 
   def __init__(self, name, env, scale):
@@ -91,24 +117,7 @@ class Player:
 
   def show(self, obs, what):
     self.done = bool(obs['is_last'])
-    image = obs['image']
-    if image.shape[-1] == 1:
-      image = np.repeat(image, 3, -1)
-    panels = [Image.fromarray(image).resize(
-        (image.shape[1] * self.scale, image.shape[0] * self.scale),
-        Image.NEAREST)]
-    if hasattr(self.env, 'ale'):
-      screen = Image.fromarray(self.env.ale.getScreenRGB())
-      panels.insert(0, screen.resize(
-          (screen.width * 2, screen.height * 2), Image.NEAREST))
-    height = max(p.height for p in panels)
-    canvas = Image.new('RGB', (sum(p.width for p in panels) + 8 * (
-        len(panels) - 1), height))
-    x = 0
-    for panel in panels:
-      canvas.paste(panel, (x, (height - panel.height) // 2))
-      x += panel.width + 8
-    self.photo = ImageTk.PhotoImage(canvas)
+    self.photo = ImageTk.PhotoImage(render(self.env, obs, self.scale))
     self.view.configure(image=self.photo)
     line = (f'step {self.steps:<4} {what:<18} reward {float(obs["reward"]):+g}'
             f'   score {self.score:g}')

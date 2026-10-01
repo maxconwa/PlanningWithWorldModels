@@ -103,8 +103,13 @@ under the same emulator settings and number of episodes.
 
 ## Emulator
 
-- ALE 0.10's `getRAM()` returns the RAM from before `restoreState` until the
-  next frame is emulated. Code that restores a state and then reads RAM (as
+- Atari 2600 Tetris deals a fixed 16-piece cycle, the same in every game
+  whatever the seed, no-ops or sticky actions. Agents trained on it
+  (`atari_tetris`, and `custom_tetris` before `random_pieces`) memorise an
+  opening rather than learn Tetris. `environments/tetris.py` randomises
+  pieces by default.
+- ALE 0.10's `getRAM()` returns the RAM from before `restoreState` or
+  `reset_game` until the next frame is emulated. Code that restores a state and then reads RAM (as
   `environments/tetris.py` does on every step) must emulate a frame first.
 
 ## Delta
