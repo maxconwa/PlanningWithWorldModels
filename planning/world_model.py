@@ -11,10 +11,11 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DREAMER = REPO / 'third_party' / 'dreamerv3'
-sys.path.insert(0, str(DREAMER))
+sys.path[:0] = [str(DREAMER), str(REPO)]
 
 import elements  # noqa: E402
 import jax  # noqa: E402
+import jax_compat  # noqa: E402,F401
 import ninjax as nj  # noqa: E402
 import numpy as np  # noqa: E402
 

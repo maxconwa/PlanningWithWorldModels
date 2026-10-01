@@ -4,6 +4,7 @@ Takes the same flags as third_party/dreamerv3/dreamerv3/main.py, which it runs;
 every built-in task still works. Custom environments are --task custom_<name>:
 
   python train.py --task custom_catch --configs debug --logdir /tmp/catch
+  python train.py --task custom_tetris --configs atari --env.atari.gray False
 """
 
 import os
@@ -17,6 +18,7 @@ os.environ['PYTHONPATH'] = os.pathsep.join(filter(None, [
     str(HERE), str(DREAMER), os.environ.get('PYTHONPATH')]))
 sys.path[:0] = [str(HERE), str(DREAMER)]
 
+import jax_compat  # noqa: E402,F401
 from dreamerv3 import main  # noqa: E402
 
 builtin_make_env = main.make_env
@@ -27,10 +29,12 @@ def make_env(config, index, **overrides):
   if suite != 'custom':
     return builtin_make_env(config, index, **overrides)
   import environments
-  kwargs = {**config.env.get('custom', {}), **overrides}
+  ctor = environments.lookup(task)
+  options = config.env.get(getattr(ctor, 'OPTIONS', 'custom'), {})
+  kwargs = {**options, **overrides}
   if kwargs.pop('use_seed', False):
     kwargs['seed'] = hash((config.seed, index)) % (2 ** 32 - 1)
-  return main.wrap_env(environments.make(task, **kwargs), config)
+  return main.wrap_env(ctor(task, **kwargs), config)
 
 
 # main.main() looks make_env up by name when it builds the environments.

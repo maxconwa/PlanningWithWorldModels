@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 
 # Replay buffer data, too large for the repository.
+outputs/**/replay/
 outputs/train/tetris_400m_latest/replay_old/
 
 # Exceed GitHub's 2 GiB LFS file size limit.
