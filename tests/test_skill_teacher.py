@@ -36,3 +36,15 @@ def test_saved_teacher_reloads(tmp_path):
   np.testing.assert_allclose(a, b, atol=1e-6)
   again = np.asarray(load_teacher(tmp_path)(obs))
   np.testing.assert_allclose(a, again, atol=1e-6)
+
+
+def test_teacher_keeps_its_best_evaluation(tmp_path):
+  """PPO can collapse late; the saved parameters are the best evaluated."""
+  config = train('pick', tmp_path, num_envs=64, timesteps=64 * 10 * 8,
+                 batch_size=2, num_minibatches=32, num_evals=4,
+                 num_eval_envs=16)
+  rows = [json.loads(line) for line in
+          (tmp_path / 'metrics.jsonl').read_text().splitlines()]
+  best = max(rows, key=lambda r: r['eval/episode_success'])
+  assert config['best_step'] == best['step']
+  assert config['best_success'] == best['eval/episode_success']

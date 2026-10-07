@@ -4,7 +4,7 @@
   python skills/teacher.py --skill place --timesteps 200000000
 
 Writes outputs/train/skill_<skill>_teacher/: params.pkl (normaliser, policy
-and value parameters), config.json (settings and control steps used) and
+and value parameters of the best evaluation), config.json (settings and control steps used) and
 metrics.jsonl (one line per evaluation).
 """
 
@@ -52,6 +52,7 @@ def train(skill, out, num_envs=8192, timesteps=100_000_000, seed=0,
   settings = {**PPO, **overrides}
   log = (out / 'metrics.jsonl').open('w')
   last = {'step': 0}
+  best = {'step': None, 'success': -1.0}
   start = time.time()
 
   def progress(step, metrics):
@@ -63,17 +64,26 @@ def train(skill, out, num_envs=8192, timesteps=100_000_000, seed=0,
     print(f"{step:>12,}  success {row.get('eval/episode_success', 0):.3f}"
           f"  reward {row.get('eval/episode_reward', 0):.2f}", flush=True)
 
-  _, params, _ = ppo.train(
+  def keep_best(step, make_policy, params):
+    # PPO here can collapse late, so the saved parameters are those of the
+    # best evaluation so far rather than the last.
+    del make_policy
+    success = last.get('eval/episode_success', -1.0)
+    if success > best['success']:
+      best.update(step=int(step), success=success)
+      with (out / 'params.pkl').open('wb') as f:
+        pickle.dump(jax.device_get(params), f)
+
+  ppo.train(
       environment=SkillEnv(skill, num_envs),
       eval_env=SkillEnv(skill, settings['num_eval_envs']),
       wrap_env=False, num_envs=num_envs, num_timesteps=timesteps,
       network_factory=network_factory(), seed=seed, progress_fn=progress,
-      **settings)
-  with (out / 'params.pkl').open('wb') as f:
-    pickle.dump(jax.device_get(params), f)
+      policy_params_fn=keep_best, **settings)
   config = dict(skill=skill, num_envs=num_envs, timesteps=timesteps,
                 seed=seed, network=TEACHER, ppo=settings,
                 control_steps=max(last['step'], timesteps),
+                best_step=best['step'], best_success=best['success'],
                 seconds=time.time() - start)
   (out / 'config.json').write_text(json.dumps(config, indent=2))
   return config
