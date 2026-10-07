@@ -75,7 +75,7 @@ class Controller:
     fingers = jnp.where(a[:, 4] > 0, scene.CLOSED, scene.OPEN)
     return jnp.concatenate([arm, fingers[:, None]], -1), target, yaw
 
-  def solve(self, qpos, pos, mat):
+  def solve(self, qpos, pos, mat, iters=None):
     """Arm joint angles that put the gripper site at `pos` with
     orientation `mat`, for one world."""
 
@@ -91,4 +91,4 @@ class Controller:
       q = q - jac.T @ jnp.linalg.solve(lhs, err)
       return jnp.clip(q, self.ranges[:, 0], self.ranges[:, 1])
 
-    return jax.lax.fori_loop(0, self.iters, body, qpos[:7])
+    return jax.lax.fori_loop(0, iters or self.iters, body, qpos[:7])

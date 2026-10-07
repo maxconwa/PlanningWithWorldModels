@@ -103,3 +103,12 @@ def test_large_batch_has_room_for_every_contact():
   d = jax.jit(sim.physics, static_argnums=2)(d, home_ctrl(64), 200)
   pos = np.asarray(jax.device_get(sim.block_pos(d)))
   np.testing.assert_allclose(pos, positions, atol=2e-3)
+
+
+def test_sim_without_cameras_steps_but_does_not_render():
+  sim = Sim(8, cameras=False)
+  d = jax.jit(sim.physics, static_argnums=2)(
+      sim.make_data(), home_ctrl(8), 10)
+  assert np.isfinite(np.asarray(jax.device_get(d.qpos))).all()
+  with pytest.raises(RuntimeError):
+    sim.render(d)

@@ -23,6 +23,15 @@ ARM_DIM = 19  # 7 joint angles, 7 velocities, gripper xyz, yaw, opening.
 SETTLE = 10  # Physics steps (0.05 s) to let a new layout come to rest.
 
 
+def arm_features(sim, control, d):
+  """The arm observation: joint angles and velocities, gripper position,
+  yaw and opening."""
+  ee_pos, ee_yaw = control.ee(d)
+  return jnp.concatenate([
+      d.qpos[:, :7], d.qvel[:, :7], ee_pos, ee_yaw[:, None],
+      sim.opening(d)[:, None]], -1).astype(jnp.float32)
+
+
 def obs_space(size):
   image = elements.Space(np.uint8, tuple(size) + (3,))
   return {
@@ -149,13 +158,10 @@ class BatchStack:
     steps = jnp.where(first, 0, state['steps'] + 1)
     sim_steps = state['sim_steps'] + jnp.where(first, 0, 1)
     last = success | (steps >= self.limits[state['n']])
-    ee_pos, ee_yaw = self.control.ee(d)
-    arm = jnp.concatenate([
-        d.qpos[:, :7], d.qvel[:, :7], ee_pos, ee_yaw[:, None],
-        opening[:, None]], -1)
+    arm = arm_features(self.sim, self.control, d)
     obs = {
         'workspace': workspace, 'wrist': wrist,
-        'arm': arm.astype(jnp.float32), 'goal': state['goal'],
+        'arm': arm, 'goal': state['goal'],
         'reward': reward.astype(jnp.float32),
         'is_first': first, 'is_last': last, 'is_terminal': success,
         'log/prefix': k.astype(jnp.int32), 'log/n': state['n'],

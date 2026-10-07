@@ -33,7 +33,7 @@ NJMAX = 384
 
 class Sim:
 
-  def __init__(self, num_envs, size=(64, 64)):
+  def __init__(self, num_envs, size=(64, 64), cameras=True):
     self.num_envs, self.size = num_envs, tuple(size)
     self.mjm = m = scene.build_model()
     self.model = mjx.put_model(m, impl='warp', graph_mode=GRAPH_MODE)
@@ -44,10 +44,12 @@ class Sim:
     self.cameras = (m.camera('workspace').id, m.camera('wrist').id)
     self.home_qpos = jax.device_put(scene.home_qpos(m).astype(np.float32))
     self.home_ctrl = jax.device_put(scene.home_ctrl().astype(np.float32))
-    self.context = warp_io.create_render_context(
-        mjm=m, nworld=num_envs, cam_res=(self.size[1], self.size[0]),
-        use_textures=True, use_shadows=False, render_rgb=True,
-        render_depth=True, enabled_geom_groups=[0, 1, 2])
+    self.context = None
+    if cameras:
+      self.context = warp_io.create_render_context(
+          mjm=m, nworld=num_envs, cam_res=(self.size[1], self.size[0]),
+          use_textures=True, use_shadows=False, render_rgb=True,
+          render_depth=True, enabled_geom_groups=[0, 1, 2])
 
   def make_data(self):
     """Every world at home, at rest."""
@@ -88,6 +90,8 @@ class Sim:
 
   def render(self, d):
     """Both cameras for every world, as uint8 RGB."""
+    if self.context is None:
+      raise RuntimeError('This Sim was made with cameras=False.')
     ctx = self.context.pytree()
     d = jax.vmap(bvh.refit_bvh, in_axes=(None, 0, None))(self.model, d, ctx)
     rgb, _, d = jax.vmap(render.render, in_axes=(None, 0, None))(

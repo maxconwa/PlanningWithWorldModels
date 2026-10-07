@@ -105,3 +105,16 @@ def test_grasps_and_lifts_a_block():
   arm.move_to((0.5, 0.0, 0.15), 1)
   z = float(np.asarray(jax.device_get(arm.sim.block_pos(arm.d)))[0, 0, 2])
   assert z > 0.10
+
+
+def test_more_iterations_reach_a_far_target():
+  """Placing the arm for a start needs IK from home to far away."""
+  import jax.numpy as jnp
+  from environments.stack_control import rot_z
+  arm = Arm()
+  goal = jnp.array([0.45, -0.1, 0.2])
+  mat = rot_z(jnp.array(0.5)) @ arm.ctrl.home_mat
+  qpos = arm.d.qpos[0]
+  q = jax.jit(lambda: arm.ctrl.solve(qpos, goal, mat, iters=30))()
+  pos, _ = arm.ctrl.pose(qpos.at[:7].set(q))
+  np.testing.assert_allclose(np.asarray(pos), np.asarray(goal), atol=2e-3)
