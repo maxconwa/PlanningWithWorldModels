@@ -95,6 +95,13 @@ under the same emulator settings and number of episodes.
   training or agent-loading process can use the local GPU at a time; a
   second one fails with `RESOURCE_EXHAUSTED`. Check `nvidia-smi` before
   starting one, and do not start one while a training run is going.
+- `custom_stack` simulates and renders on the GPU inside the training
+  process (MJX Warp backend). Train it with `--jax.prealloc False`, and run
+  `python -m pytest tests` only while no other GPU process is up. Install
+  its packages with `pip install -c constraints.txt ...`, which keeps JAX
+  at 0.10.2.
+- `dreamer_fixes.py` rebuilds DreamerV3's `Agent.report`, which fails with
+  more than one image observation; `train.py` imports it.
 - Local training writes to `outputs/train/<run>/` and logs to
   `outputs/logs/<run>.log`; its replay buffer (`replay/`) is git-ignored.
 - Delta: `slurm/activate.sh` loads the `/projects/biny/mconway/dreamer-env`
@@ -145,6 +152,8 @@ under the same emulator settings and number of episodes.
 Say what was run and what was not. Useful checks:
 
 - `python -m py_compile` on changed files.
+- `python -m pytest tests` (the `stack` environment and batched driver; uses
+  the GPU).
 - A short CPU training run: `python train.py --task <task> --configs debug
   --logdir <scratch dir> --run.steps 400`, with the `debug` preset's tiny
   model on the CPU.

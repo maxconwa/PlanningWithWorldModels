@@ -19,11 +19,23 @@ all other flags are DreamerV3's.
   a fixed 16-piece cycle, which an agent can memorise. All other options are
   DreamerV3's Atari ones, set with `--env.atari.*`. Trained by
   `slurm/tetris_placement.slurm`.
+- `stack`: a Franka Panda stacks 2-4 coloured blocks in a goal order. The
+  agent sees a workspace camera and a wrist camera (64x64 RGB), the arm's
+  state and the goal, and moves the gripper by end-effector deltas at 20 Hz.
+  Physics and rendering run on the GPU (MJX with the Warp backend) for a
+  batch of worlds at once: `train.py` steps them through
+  `batch_driver.BatchDriver`, so the agent and the environment share the
+  GPU; pass `--jax.prealloc False`. Options: `n` fixes N (0 samples 2-4),
+  `prestack` is the share of starts with a stack already built, `size` the
+  camera resolution. Block poses are not observed; `privileged()` returns
+  them. Install with `pip install -c constraints.txt mujoco==3.15.0
+  'mujoco-mjx[warp]==3.15.0'`.
 
 ## Playing by hand
 
     python environments/play.py tetris
     python environments/play.py tetris --option gray=False --option sticky=False
+    python environments/play.py stack --scale 6
 
 Opens a window with the emulator screen (for Atari environments) and the
 observation the agent gets, using the options training uses unless
