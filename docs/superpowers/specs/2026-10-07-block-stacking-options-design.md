@@ -86,6 +86,7 @@ and evaluation read them:
 |---|---|
 | `log/blocks` | per colour slot: present flag, position, orientation (quaternion), linear velocity; zeros when absent |
 | `log/progress` | tower prefix k and N |
+| `log/sim_steps` | running total of control steps in this environment |
 
 The option environment adds two more `log/` keys, so both world models get
 exactly the same inputs:
