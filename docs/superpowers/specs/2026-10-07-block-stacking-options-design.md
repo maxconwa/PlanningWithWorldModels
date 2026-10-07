@@ -18,6 +18,10 @@ supporting or refuting three claims:
 3. **End to end.** Options reach higher stacking success than raw actions at
    the same number of low-level simulator steps.
 
+Everything that acts or predicts works from camera images: the world models,
+the end-to-end raw policy, and the skills behind the options all see a fixed
+workspace camera and a wrist camera, plus proprioception and the goal.
+
 Sim only. Realism matters less than a fair, repeatable comparison.
 
 ## Task
@@ -50,29 +54,46 @@ order, bottom to top.
 - **MuJoCo** (`mujoco` Python bindings), the Panda and its gripper from
   MuJoCo Menagerie (Apache 2.0), copied into `environments/assets/panda/`
   with its licence. The scene (table, blocks) is our own MJCF.
+- **Model file.** Menagerie's MJX variant of the Panda, used by both the CPU
+  simulator and MJX, so the two simulate the same model.
 - **Physics** at 500 Hz; **control** at 20 Hz (25 physics steps per control
   step).
+- **Cameras.** A fixed workspace camera looking down at the table at about
+  45 degrees, and a wrist camera on the gripper looking along it. Both
+  render 64 x 64 RGB through MuJoCo's offscreen renderer (EGL), once per
+  control step.
 - **Arm controller.** Differential inverse kinematics from an end-effector
   target to joint position targets for the Panda's position actuators, with
   the gripper pointing down and only yaw free.
 
 ## Observations
 
-Full state, no images, the same for both agents:
+The same for both agents and for the skill policies:
 
 | Key | Contents |
 |---|---|
+| `workspace` | 64 x 64 RGB from the workspace camera |
+| `wrist` | 64 x 64 RGB from the wrist camera |
 | `arm` | joint positions and velocities, end-effector position and yaw, gripper opening |
-| `blocks` | per colour slot: present flag, position, orientation (quaternion), linear velocity; zeros when absent |
 | `goal` | goal order as 4 colour ids bottom to top, padded with a "none" id |
-| `progress` | tower prefix k and N |
 
-The option environment adds two more:
+Block poses come only from the images. The simulator's true state goes along
+as `log/` keys, which DreamerV3 keeps out of the model (`main.py` drops them
+from the agent's observation space). Only the skill teachers, the pose probes
+and evaluation read them:
 
 | Key | Contents |
 |---|---|
-| `option_mask` | which of the 9 options are valid now (for planners and logging) |
-| `duration` | control steps the last option took |
+| `log/blocks` | per colour slot: present flag, position, orientation (quaternion), linear velocity; zeros when absent |
+| `log/progress` | tower prefix k and N |
+
+The option environment adds two more `log/` keys, so both world models get
+exactly the same inputs:
+
+| Key | Contents |
+|---|---|
+| `log/option_mask` | which of the 9 options are valid now (read by planners) |
+| `log/duration` | control steps the last option took |
 
 ## Raw action space
 
@@ -99,32 +120,47 @@ skill signals that it is done, or for at most 150 control steps.
 
 ## Skills
 
-Two goal-conditioned skill policies, trained with PPO (Stable-Baselines3, on
-the CPU, many parallel MuJoCo environments) on the raw action space:
+Two goal-conditioned skills on the raw action space:
 
-- **Pick.** Input: state observation and the target colour. Success: block
-  grasped and lifted 5 cm clear of anything below it.
-- **Place.** Input: state observation and the target (a colour, or the
-  table). Success: held block released and resting on the target, gripper
-  open and raised 5 cm.
+- **Pick(c).** Success: block c grasped and lifted 5 cm clear of anything
+  below it.
+- **Place(target).** Target is a colour or the table. Success: held block
+  released and resting on the target, gripper open and raised 5 cm.
 
-Both output the 5 raw action dimensions plus a **terminate** logit. Choosing
-to terminate ends the skill: it earns a bonus if the success condition holds
-and a penalty otherwise. Skill training uses its own dense shaped reward
-(reach, grasp, lift or align, release). This reward is for the skills only;
-the stacking agents never see it.
+Each skill outputs the 5 raw action dimensions plus a **terminate** logit.
+Choosing to terminate ends the skill: it earns a bonus if the success
+condition holds and a penalty otherwise.
+
+Each skill is trained in two stages:
+
+1. **State teacher.** PPO from privileged state (arm, block poses, target),
+   with Brax's PPO on MJX: thousands of parallel environments on the GPU, no
+   rendering. It uses its own dense shaped reward (reach, grasp, lift or
+   align, release), which the stacking agents never see.
+2. **Image student.** The deployed skill: a CNN policy on `workspace`,
+   `wrist`, `arm` and the target, in JAX/Flax. It is trained with DAgger on
+   CPU MuJoCo with rendering: the student acts, the teacher labels each
+   visited state with its action and terminate decision, and the student is
+   trained on the growing dataset.
 
 Start states for skill training are drawn from the same distribution as
 stacking episodes. Place starts with a block already in the gripper, set
-directly in the simulator state. **Gate:** each skill must succeed in at
-least 90% of 500 test episodes before the option agent is trained.
+directly in the simulator state.
+
+**Gates,** each on 500 test episodes on CPU MuJoCo, the simulator the option
+environment uses:
+
+- the teacher succeeds in at least 90%, which catches any gap between MJX and
+  CPU physics before distillation;
+- the student succeeds in at least 90% before the option agent is trained.
 
 ## Agents and training
 
 - **DreamerV3** (`third_party/dreamerv3` at `e3f0224`, unchanged), launched
   through `train.py` with `--task custom_stack` (raw) and
   `--task custom_stack_options` (options). Same config for both: `size12m`,
-  `train_ratio` 32, MLP encoder and decoder on the state keys, `contdisc`.
+  `train_ratio` 32, `contdisc`. The encoder and decoder take both 64 x 64
+  cameras (CNN) and `arm` and `goal` (MLP).
   The only difference is the action space (bounded normal vs categorical
   policy). The option agent's discount applies per decision, not per elapsed
   control step; this is part of what "option space" means here.
@@ -134,8 +170,9 @@ least 90% of 500 test episodes before the option agent is trained.
   from the pilot's mean option duration, and both runs are compared at the
   same `sim_steps` on their training curves.
 - **Skill accounting.** Results are reported twice: with skills treated as
-  given, and with the control steps spent training the skills added to the
-  option agent's total.
+  given, and with the control steps spent training the skills (teacher PPO
+  steps in MJX plus student DAgger rollout steps) added to the option agent's
+  total.
 - **Seeds and compute.** One seed per condition, on the local GPU. Scaling to
   more seeds on Delta is a separate decision after the pilot.
 
@@ -169,12 +206,20 @@ rows.
   played with the option agent's policy, and the low-level actions are
   recorded during each option. Both models are then rolled open-loop through
   the same executed behaviour (the option model by its options, the raw model
-  by the recorded low-level actions). Reported as:
+  by the recorded low-level actions).
+
+  Block poses are read out of each model's latent states by a **pose probe**:
+  a small MLP per model, fitted on posterior latents of separate held-out
+  real episodes to the true `log/blocks`, then frozen. Reported as:
   - Block pose error at matched sim time (after 1, 2 and 3 options' worth of
-    control steps).
+    control steps): probe on the open-loop prediction vs the simulator.
   - Error per decision (after k decisions on each model's own time scale).
+  - Image error of the decoded `workspace` and `wrist` frames vs the real
+    ones, at the same points.
   - Return-prediction error: predicted vs actual episode return from the
     start state.
+  - The probe's own error on posterior latents, as the floor the open-loop
+    errors are read against.
 - **Tree figures.** `planning/search_tree.py` draws the option agent's trees
   as it does for Tetris placements.
 
@@ -186,27 +231,34 @@ rows.
   (`custom_stack_options`). It wraps `stack.py` and loads the trained skills.
 - `environments/assets/panda/`, `environments/assets/stack.xml`: the robot
   and scene.
-- `skills/train.py`, `skills/envs.py`: PPO training of pick and place on
-  `stack.py`, and the skill checkpoints' format.
+- `skills/mjx_env.py`: the pick and place tasks on MJX, sharing the model
+  file and start-state sampling with `stack.py`.
+- `skills/teacher.py`: Brax PPO training of the state teachers.
+- `skills/student.py`: the image policy network and DAgger distillation on
+  `stack.py`.
+- `skills/policy.py`: loading a trained student for the option environment.
 - `planning/search.py`: iCEM and sampled MuZero.
 - `planning/eval_model.py`: custom environments, continuous actions, success
   by N.
 - `planning/model_error.py`: model accuracy.
-- New dependencies in the `dreamerv3` conda env: `mujoco`,
-  `stable-baselines3` and CPU-only `torch`.
+- New dependencies in the `dreamerv3` conda env: `mujoco`, `mujoco-mjx` and
+  `brax`, all JAX-based (no torch).
 
 ## Build order
 
 Each step ends with a check before the next starts.
 
-1. **Scene and controller.** Panda, table and blocks load; the IK controller
-   tracks end-effector targets. Check: drive the arm by hand through
-   `environments/play.py`.
+1. **Scene, controller and cameras.** Panda, table and blocks load in CPU
+   MuJoCo and MJX; the IK controller tracks end-effector targets; both
+   cameras render. Check: drive the arm by hand through
+   `environments/play.py`, which shows both cameras, and step the same scene
+   in MJX.
 2. **Raw stacking env.** Observations, reward, prefix, success, start states.
    Check: unit tests on hand-built states (correct and wrong towers, held
    block, toppled tower), and a `--configs debug` DreamerV3 run of 400 steps.
-3. **Skills.** PPO pick and place with learned termination. Check: the 90%
-   gate on 500 test episodes each.
+3. **Skills.** State teachers in MJX, then image students by DAgger, both
+   with learned termination. Check: the teacher gate, then the student gate,
+   on CPU MuJoCo.
 4. **Option env.** Masks, invalid-option cost, duration, summed reward,
    time-limit cut-off. Check: unit tests, plus a scripted sequence of valid
    options that builds a correct N = 3 tower.
@@ -218,10 +270,11 @@ Each step ends with a check before the next starts.
    MuZero with K = 9 matches PUCT within noise, and both planners beat a
    random-action baseline on the trained models.
 8. **Evaluation.** The 2 x 3 table (plus the extra PUCT and Gumbel rows), the
-   skill-accounting variant, and the model-accuracy measures.
+   skill-accounting variant, the pose probes, and the model-accuracy
+   measures.
 
 ## Out of scope
 
-Images, real hardware, more seeds or Delta scaling (decided after the pilot),
+Real hardware, more seeds or Delta scaling (decided after the pilot),
 learned or discovered skills beyond pick and place, and changes to the pinned
 DreamerV3.
