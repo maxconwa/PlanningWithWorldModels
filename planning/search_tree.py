@@ -2,8 +2,9 @@
 
 Plays the real emulator with the trained policy for --step frames, then runs
 one search (mctx) from the posterior RSSM state of the last frame: Gumbel
-MuZero with Sequential Halving at the root (--planner gumbel), or MCTS with
-PUCT (--planner puct). Graphviz lays the tree out top to bottom. Every node, the root included,
+MuZero with Sequential Halving at the root (--planner gumbel), MCTS with
+PUCT (--planner puct), or full-width MCTS that expands every action from every
+node down to --depth (--planner full). Graphviz lays the tree out top to bottom. Every node, the root included,
 shows the frame the decoder produces for its RSSM state, so the whole tree is
 drawn by the world model. Each edge is the action taken from its parent.
 
@@ -12,6 +13,8 @@ drawn by the world model. Each edge is the action taken from its parent.
       --step 350 --sims 64 --out tree_350.svg
   ~/anaconda3/envs/dreamer/bin/python planning/search_tree.py --logdir tetris_400m_latest \
       --planner puct --out puct_tree.html
+  ~/anaconda3/envs/dreamer/bin/python planning/search_tree.py --logdir tetris_400m_latest \
+      --planner full --depth 2 --out full_tree_depth2.html
 
 The --out extension picks the output: .html is an interactive page (click a
 node for its statistics), .svg a standalone vector file with the frames
@@ -33,7 +36,7 @@ import sys
 import tempfile
 
 from world_model import build, eval_path, logdir_arg, seeder, warmup
-from search import PUCT, make_search
+from search import FULL, PUCT, full_sims, make_search
 
 import jax
 import jax.numpy as jnp
@@ -107,12 +110,19 @@ def tree_data(parts, out, frames, real, run, step, sims, planner, considered):
   softmax = lambda x: np.exp(x - x.max()) / np.exp(x - x.max()).sum()
   r4 = lambda x: float(f'{float(x):.5g}')
 
-  # The chosen action, then the most visited child at each level below it.
+  # The chosen action, then the most visited child at each level below it
+  # (the child with the largest Q for the full-width search, whose visits are
+  # all equal).
   pv, node = {0}, int(t['children'][0, t['chosen']])
   while node >= 0 and t['visits'][node] > 0:
     pv.add(node)
     kids = t['children'][node]
-    best = int(np.argmax(np.where(kids >= 0, t['cvisits'][node], -1)))
+    if planner == 'full':
+      q = t['rewards'][node] + t['discounts'][node] * t['cvalues'][node]
+      score = np.where(t['cvisits'][node] > 0, q, -np.inf)
+    else:
+      score = np.where(kids >= 0, t['cvisits'][node], -1)
+    best = int(np.argmax(score))
     node = int(kids[best]) if t['cvisits'][node, best] > 0 else -1
 
   nodes, depth = [], {0: 0}
@@ -151,6 +161,8 @@ def tree_data(parts, out, frames, real, run, step, sims, planner, considered):
     order = sorted(range(len(actions)), key=lambda a: (-n[a], -t['weights'][a]))
     extra['rounds'] = [dict(size=size, sims=total, actions=order[:size])
                        for size, total in halving_rounds(considered, sims)]
+  elif planner == 'full':
+    extra['depth'] = int(max(n['depth'] for n in nodes))
   else:
     # The PUCT scores at the root once the search is done, computed the way
     # mctx does: Q min-max scaled against the root value and the visited
@@ -256,7 +268,8 @@ def page(data, svg):
   info = dict(data, real=data_uri(data['real']), nodes=[
       dict({k: v for k, v in n.items() if k != 'png'}, img=data_uri(n['png']))
       for n in data['nodes']])
-  title = f'{data["game"]} {"Search" if data["planner"] == "gumbel" else "PUCT"} Tree'
+  name = dict(gumbel='Search', puct='PUCT', full='Full Width')[data['planner']]
+  title = f'{data["game"]} {name} Tree'
   return HEAD + (PAGE.replace('__TITLE__', title)
                  .replace('__GRAPH_COLORS__', graph_colors)
                  .replace('__SVG__', svg)
@@ -269,9 +282,14 @@ def main():
                       help='run directory, or a run name in outputs/train/')
   parser.add_argument('--step', type=int, default=200,
                       help='real frames played with the policy before the search')
-  parser.add_argument('--planner', choices=['gumbel', 'puct'], default='gumbel',
-                      help='Gumbel MuZero search, or MCTS with PUCT')
-  parser.add_argument('--sims', type=int, default=32)
+  parser.add_argument('--planner', choices=['gumbel', 'puct', 'full'],
+                      default='gumbel',
+                      help='Gumbel MuZero search, MCTS with PUCT, or full-width '
+                           'MCTS')
+  parser.add_argument('--sims', type=int, default=32,
+                      help='search simulations (--planner gumbel or puct)')
+  parser.add_argument('--depth', type=int, default=FULL['depth'],
+                      help='depth expanded in full (--planner full)')
   parser.add_argument('--considered', type=int, default=16,
                       help='root actions Sequential Halving starts from '
                            '(--planner gumbel; capped at the action count)')
@@ -296,6 +314,11 @@ def main():
           f'{considered} actions...')
     batched = make_search(parts['model'], args.sims, 'gumbel',
                           max_num_considered_actions=considered)
+  elif args.planner == 'full':
+    args.sims = full_sims(len(parts['actions']), args.depth)
+    print(f'Searching with full-width MCTS: every action to depth '
+          f'{args.depth}, {args.sims} simulations...')
+    batched = make_search(parts['model'], args.sims, 'full', depth=args.depth)
   else:
     print(f'Searching with MCTS (PUCT): {args.sims} simulations...')
     batched = make_search(parts['model'], args.sims, 'puct', **PUCT)
@@ -558,14 +581,16 @@ __GRAPH_COLORS__
   };
 
   // Header and root summary.
-  const gumbel = D.planner === 'gumbel';
+  const gumbel = D.planner === 'gumbel', full = D.planner === 'full';
   document.getElementById('meta').textContent =
     `${D.run} · checkpoint ${D.ckpt} · real frame ${D.step} · `
-    + `${gumbel ? 'Gumbel MuZero' : 'MCTS with PUCT'} · ${D.sims} simulations`;
+    + `${gumbel ? 'Gumbel MuZero' : full ? `Full-width MCTS to depth ${D.depth}`
+      : 'MCTS with PUCT'} · ${D.sims} simulations`;
   const top = D.rootActions[D.policyTop];
   const verdict = document.getElementById('verdict');
   verdict.append(gumbel ? 'Search picks ' : 'MCTS plays ', el('b', '', A[D.chosen]),
-    gumbel ? '. ' : ', its most visited root action. ');
+    gumbel ? '. ' : full ? ', the root action with the largest Q. '
+      : ', its most visited root action. ');
   verdict.append(D.chosen === D.policyTop
     ? `The policy alone would most likely have picked the same action (π ${prob(top.prior)}).`
     : `The policy alone would most likely have picked `);
@@ -574,7 +599,8 @@ __GRAPH_COLORS__
 
   const rule = document.getElementById('rule');
   document.getElementById('rule-title').textContent =
-    gumbel ? 'Sequential Halving at the root' : 'PUCT at the root';
+    gumbel ? 'Sequential Halving at the root'
+      : full ? 'Every action, every node' : 'PUCT at the root';
   const rounds = el('ol', 'rounds');
   if (gumbel) D.rounds.forEach((r, i) => {
     const li = el('li', 'round');
@@ -598,6 +624,13 @@ __GRAPH_COLORS__
     pick.append(el('span', 'label', 'Pick'), pickChips);
     rounds.append(pick);
     rule.append(rounds);
+  } else if (full) {
+    rule.append(el('p', 'rule-text', 'Every simulation walks down from the root '
+      + 'to the child searched least, so the tree fills breadth first: every '
+      + `action from every node, down to depth ${D.depth}. Leaves are scored by `
+      + 'the critic, and each node averages the returns backed up through it. '
+      + 'The root action with the largest Q = r + γ·V is played, and the '
+      + 'highlighted line follows the largest Q at each level below it.'));
   } else {
     rule.append(el('p', 'rule-text', 'Every simulation walks down from the root '
       + 'taking the action with the largest Q̂ + U. Q̂ is Q scaled to [0, 1] among '
@@ -638,6 +671,11 @@ __GRAPH_COLORS__
       ['Gumbel g', r => cell(fmt(r.gumbel, 2))], ['N', r => cell(String(r.visits))],
       ['Q', r => cell(fmt(r.q))], ['After search π′', r => withBar(prob(r.improved), r.improved)],
       ['g + log π′', r => cell(fmt(score(r), 2))]];
+  } else if (full) {
+    rows = [...D.rootActions].sort((a, b) => (b.q ?? -Infinity) - (a.q ?? -Infinity));
+    columns = [
+      ['Action', r => cell(A[r.action])], ['Prior P', r => cell(prob(r.prior))],
+      ['N', r => cell(String(r.visits))], ['Q', r => cell(fmt(r.q))]];
   } else {
     rows = [...D.rootActions].sort(byVisits);
     columns = [

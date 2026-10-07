@@ -17,6 +17,14 @@ PUCT = dict(pb_c_init=1.25, pb_c_base=19652.0, dirichlet_fraction=0.0,
 # values from `rollouts` policy rollouts of `horizon` imagined steps.
 UCT = dict(c=2 ** 0.5, rollouts=8, horizon=50, bootstrap=False)
 
+# Full-width search: every action from every node down to `depth`.
+FULL = dict(depth=2)
+
+
+def full_sims(actions, depth):
+  """Simulations that expand every node of a full tree of `depth`."""
+  return sum(actions ** d for d in range(1, depth + 1))
+
 
 def uct_args(parser):
   """Command line flags for --planner uct, defaulting to UCT."""
@@ -55,6 +63,12 @@ def make_search(model, sims, planner='gumbel', **options):
             discounted return of policy rollouts in the world model, plus the
             critic at their end if `bootstrap`. Acts by visit counts. `options`
             are the keys of UCT.
+    full    Full-width MCTS: every simulation descends to the least visited
+            child, so the tree fills breadth first. With full_sims(actions,
+            depth) simulations every action is expanded at every node down
+            to `depth`. Leaves are valued by the critic, values are backed up
+            as averages as in the other planners, and the root action with
+            the largest Q is played. `options` are the keys of FULL.
   """
   import jax.numpy as jnp
   import mctx
@@ -126,6 +140,12 @@ def make_search(model, sims, planner='gumbel', **options):
     score = jnp.where(visits > 0, qhat + bonus + 1e-7 * noise, 1e6 + noise)
     return jnp.argmax(score).astype(jnp.int32)
 
+  def least_visited(key, tree, node):
+    """The child searched least, ties broken at random."""
+    visits = tree.children_visits[node]
+    noise = jax.random.uniform(key, visits.shape)
+    return jnp.argmin(visits + 0.5 * noise).astype(jnp.int32)
+
   def search(params, dyn_carry, key):
     key, root_key, rollout_key = jax.random.split(key, 3)
     _, (logits, value) = root_fn(params, dyn_carry, seed=root_key)
@@ -133,17 +153,27 @@ def make_search(model, sims, planner='gumbel', **options):
       value = rollout_value(params, dyn_carry, rollout_key)
     root = mctx.RootFnOutput(
         prior_logits=logits, value=value, embedding=dyn_carry)
-    if planner != 'uct':
+    if planner in ('gumbel', 'puct'):
       policy = dict(gumbel=mctx.gumbel_muzero_policy,
                     puct=mctx.muzero_policy)[planner]
       return policy(params, key, root, recurrent_fn, num_simulations=sims,
                     **options)
+    select = ucb1 if planner == 'uct' else least_visited
     tree = mctx.search(
         params, key, root=root, recurrent_fn=recurrent_fn,
-        root_action_selection_fn=ucb1,
-        interior_action_selection_fn=lambda key, tree, node, depth: ucb1(
+        root_action_selection_fn=select,
+        interior_action_selection_fn=lambda key, tree, node, depth: select(
             key, tree, node),
-        num_simulations=sims)
+        num_simulations=sims, max_depth=options.get('depth'))
+    if planner == 'full':
+      visits = tree.children_visits[:, 0]
+      q = (tree.children_rewards[:, 0]
+           + tree.children_discounts[:, 0] * tree.children_values[:, 0])
+      return mctx.PolicyOutput(
+          action=jnp.argmax(jnp.where(visits > 0, q, -jnp.inf), -1).astype(
+              jnp.int32),
+          action_weights=visits / visits.sum(-1, keepdims=True),
+          search_tree=tree)
     # Most visited root action, ties broken by the scaled Q.
     visits = tree.children_visits[:, 0]
     qhat = jax.vmap(mctx.qtransform_by_parent_and_siblings, (0, None))(
