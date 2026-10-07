@@ -13,9 +13,14 @@ also printed to the terminal.
 """
 
 import argparse
+import os
 import pathlib
 import sys
 import tkinter
+
+# The stack environment simulates on the GPU in this process.
+os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+os.environ.setdefault('MJX_WARP_ENABLED', 'true')
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(REPO), str(REPO / 'third_party' / 'dreamerv3')]
@@ -31,10 +36,16 @@ CONFIGS = REPO / 'third_party' / 'dreamerv3' / 'dreamerv3' / 'configs.yaml'
 # Tk key names to actions, per environment.
 KEYS = {
     'catch': {'Left': 0, 'Down': 1, 'Right': 2},
+    'stack': {
+        'w': (0, 1), 's': (0, -1), 'a': (1, 1), 'd': (1, -1),
+        'r': (2, 1), 'f': (2, -1), 'q': (3, 1), 'e': (3, -1),
+        'space': ('grip', None)},
     'tetris': {**{str(c): c for c in range(10)}, 'r': 10, 'Up': 10},
 }
 HELP = {
     'catch': 'Left/Right move the paddle, Down keeps it still',
+    'stack': 'W/S move x, A/D move y, R/F up/down, Q/E turn, '
+             'Space opens or closes the gripper',
     'tetris': '0-9 place the piece with its leftmost cell in that column, '
               'R or Up rotates',
 }
@@ -54,13 +65,15 @@ def options(name, overrides):
 
 
 def render(env, obs, scale, screen=True):
-  """The observation, after the emulator screen for Atari environments when
-  `screen` is set."""
-  image = obs['image']
-  if image.shape[-1] == 1:
-    image = np.repeat(image, 3, -1)
-  panels = [Image.fromarray(image).resize(
-      (image.shape[1] * scale, image.shape[0] * scale), Image.NEAREST)]
+  """Every camera image in the observation, after the emulator screen for
+  Atari environments when `screen` is set."""
+  images = [obs[k] for k in sorted(obs)
+            if getattr(obs[k], 'dtype', None) == np.uint8
+            and np.ndim(obs[k]) == 3]
+  images = [np.repeat(i, 3, -1) if i.shape[-1] == 1 else i for i in images]
+  panels = [Image.fromarray(i).resize(
+      (i.shape[1] * scale, i.shape[0] * scale), Image.NEAREST)
+      for i in images]
   if screen:
     try:
       screen = Image.fromarray(env.ale.getScreenRGB())
@@ -99,9 +112,13 @@ class Player:
     self.reset()
 
   def reset(self):
-    self.score, self.steps = 0.0, 0
-    obs = self.env.step({'reset': True, 'action': 0})
+    self.score, self.steps, self.grip = 0.0, 0, -1.0
+    obs = self.env.step({'reset': True, 'action': self.zero_action()})
     self.show(obs, 'new episode')
+
+  def zero_action(self):
+    space = self.env.act_space['action']
+    return np.zeros(space.shape, space.dtype) if space.shape else 0
 
   def press(self, event):
     if event.keysym == 'Escape':
@@ -109,11 +126,20 @@ class Player:
     elif event.keysym in ('n', 'N'):
       self.reset()
     elif event.keysym in self.keys and not self.done:
-      action = self.keys[event.keysym]
+      key = self.keys[event.keysym]
+      if isinstance(key, tuple):
+        action = self.zero_action()
+        if key[0] == 'grip':
+          self.grip = -self.grip
+        else:
+          action[key[0]] = key[1]
+        action[-1] = self.grip
+      else:
+        action = key
       obs = self.env.step({'reset': False, 'action': action})
       self.score += float(obs['reward'])
       self.steps += 1
-      self.show(obs, f'action {action} ({event.keysym})')
+      self.show(obs, f'action {np.round(action, 2)} ({event.keysym})')
 
   def show(self, obs, what):
     self.done = bool(obs['is_last'])
