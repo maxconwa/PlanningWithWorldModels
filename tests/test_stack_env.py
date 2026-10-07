@@ -1,3 +1,5 @@
+import threading
+
 import jax
 import numpy as np
 import pytest
@@ -155,3 +157,27 @@ def test_single_world_env():
   assert obs['is_first'] and obs['workspace'].shape == (64, 64, 3)
   obs = env.step({'reset': False, 'action': np.zeros(5, np.float32)})
   assert not obs['is_first']
+
+
+def test_steps_while_another_thread_uses_the_gpu():
+  """DreamerV3 trains and prefetches batches in other threads while the
+  environment steps."""
+  env = BatchStack(2, seed=9)
+  matmul = jax.jit(lambda x: (x @ x) @ x)
+  stop = threading.Event()
+
+  def busy():
+    while not stop.is_set():
+      x = jax.device_put(np.ones((2048, 2048), np.float32))
+      jax.block_until_ready(matmul(x))
+
+  thread = threading.Thread(target=busy)
+  thread.start()
+  try:
+    env.step(acts(reset=True, batch=2))
+    for _ in range(30):
+      obs = env.step(acts((0.3, 0, 0, 0, -1), batch=2))
+  finally:
+    stop.set()
+    thread.join()
+  assert np.isfinite(obs['arm']).all()

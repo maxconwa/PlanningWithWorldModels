@@ -13,6 +13,7 @@ os.environ.setdefault('MJX_WARP_ENABLED', 'true')
 import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
+import warp as wp  # noqa: E402
 from mujoco import mjx  # noqa: E402
 from mujoco.mjx._src import bvh, render, render_util  # noqa: E402
 from mujoco.mjx.warp import io as warp_io  # noqa: E402
@@ -23,6 +24,10 @@ from environments import stack_scene as scene  # noqa: E402
 # defaults drop contacts once four blocks rest on the floor; these cover
 # every block on the floor or in a stack plus both finger pads.
 CONTACTS_PER_WORLD = 64
+# Warp captures each MJX call as a CUDA graph. Its default (WARP) fails with
+# "capturing stream has unjoined work" inside DreamerV3's training loop;
+# WARP_STAGED does not, and is as fast (NONE is four times slower).
+GRAPH_MODE = wp.JaxCallableGraphMode.WARP_STAGED
 NJMAX = 384
 
 
@@ -31,7 +36,7 @@ class Sim:
   def __init__(self, num_envs, size=(64, 64)):
     self.num_envs, self.size = num_envs, tuple(size)
     self.mjm = m = scene.build_model()
-    self.model = mjx.put_model(m, impl='warp')
+    self.model = mjx.put_model(m, impl='warp', graph_mode=GRAPH_MODE)
     self.site = m.site('gripper').id
     self.bodies = np.array(scene.block_body_ids(m))
     self.qpos_adr = scene.block_qpos_adr(m)
