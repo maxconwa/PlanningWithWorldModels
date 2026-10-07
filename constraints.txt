@@ -1,0 +1,3 @@
+# Versions pip must not move when installing into the dreamerv3 env.
+jax==0.10.2
+jaxlib==0.10.2
