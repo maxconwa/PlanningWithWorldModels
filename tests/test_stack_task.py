@@ -110,3 +110,13 @@ def test_fixed_n():
   keys = jax.random.split(jax.random.PRNGKey(2), 32)
   n, *_ = jax.vmap(sample_start, (0, None, None))(keys, 3, 0.3)
   assert set(np.asarray(n).tolist()) == {3}
+
+
+def test_no_start_is_already_solved():
+  """A pre-built stack never already is the whole goal tower."""
+  keys = jax.random.split(jax.random.PRNGKey(3), 2048)
+  for fixed_n in (2, 3):
+    n, goal, pos, _ = jax.vmap(sample_start, (0, None, None))(
+        keys, fixed_n, 1.0)
+    k = jax.vmap(tower_prefix, (0, 0, 0, None))(goal, n, pos, NOBODY)
+    assert int((k == n).sum()) == 0, fixed_n

@@ -20,7 +20,7 @@ from environments.stack_control import HOLD, Controller
 from environments.stack_sim import Sim
 
 ARM_DIM = 19  # 7 joint angles, 7 velocities, gripper xyz, yaw, opening.
-SETTLE = 60  # Physics steps (0.3 s) to let a new layout come to rest.
+SETTLE = 10  # Physics steps (0.05 s) to let a new layout come to rest.
 
 
 def obs_space(size):
@@ -97,12 +97,16 @@ class BatchStack:
     return dict(
         data=d, key=key, target=target, yaw=yaw,
         goal=jnp.full((b, len(scene.COLORS)), task.NONE, jnp.int32),
-        n=zeros + 2, k=zeros, count=zeros, steps=zeros, sim_steps=zeros)
+        n=zeros + 2, k=zeros, count=zeros, steps=zeros, sim_steps=zeros,
+        episodes=zeros)
 
   def _restart_impl(self, state, mask):
-    """New episodes for the worlds in `mask`; the others are untouched."""
-    key, sub = jax.random.split(state['key'])
-    keys = jax.random.split(sub, self.num_envs)
+    """New episodes for the worlds in `mask`; the others are untouched.
+    A world's j-th start comes from the seed, the world and j alone, so it
+    does not depend on when the other worlds' episodes end."""
+    worlds = jnp.arange(self.num_envs)
+    keys = jax.vmap(lambda w, e: jax.random.fold_in(
+        jax.random.fold_in(state['key'], w), e))(worlds, state['episodes'])
     n, goal, pos, yaws = jax.vmap(task.sample_start, (0, None, None))(
         keys, self.fixed_n, self.prestack)
     fresh = self.sim.set_blocks(self.sim.home(state['data']), pos, yaws)
@@ -120,7 +124,7 @@ class BatchStack:
                        new, old)
 
     return dict(
-        state, data=d, key=key,
+        state, data=d, episodes=state['episodes'] + mask,
         target=pick(target, state['target']), yaw=pick(yaw, state['yaw']),
         goal=pick(goal, state['goal']), n=pick(n, state['n']))
 

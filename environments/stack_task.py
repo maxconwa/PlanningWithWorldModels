@@ -43,6 +43,10 @@ def sample_start(key, fixed_n, prestack):
   order = jnp.argsort(jnp.where(
       levels < n, jax.random.uniform(keys[4], (len(COLORS),)), 2.0))
   rank = jnp.argsort(order)
+  # A stack of all N blocks in goal order would be solved before the agent
+  # acts; swapping its bottom two makes the agent start from scratch.
+  solved = (height == n) & ((rank == levels) | (levels >= n)).all()
+  rank = jnp.where(solved, rank.at[0].set(1).at[1].set(0), rank)
   in_stack = rank < height
   slots = jax.random.permutation(keys[5], len(SLOTS))
   slot = jnp.where(in_stack, slots[0], slots[rank - height + 1])
