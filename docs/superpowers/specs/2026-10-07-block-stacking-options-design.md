@@ -53,11 +53,13 @@ order, bottom to top.
 
 - **MuJoCo** (`mujoco` Python bindings), the Panda and its gripper from
   MuJoCo Menagerie (Apache 2.0), copied into `environments/assets/panda/`
-  with its licence. The scene (table, blocks) is our own MJCF.
+  with its licence. The scene (floor as the table, blocks, cameras) is our
+  own MJCF.
 - **Model file.** Menagerie's MJX variant of the Panda, used by both the CPU
   simulator and MJX, so the two simulate the same model.
-- **Physics** at 500 Hz; **control** at 20 Hz (25 physics steps per control
-  step).
+- **Physics** at 200 Hz with Menagerie's MJX solver settings (timestep
+  0.005, implicitfast, 5 iterations); **control** at 20 Hz (10 physics steps
+  per control step).
 - **Cameras.** A fixed workspace camera looking down at the table at about
   45 degrees, and a wrist camera on the gripper looking along it. Both
   render 64 x 64 RGB through MuJoCo's offscreen renderer (EGL), once per
@@ -77,24 +79,30 @@ The same for both agents and for the skill policies:
 | `arm` | joint positions and velocities, end-effector position and yaw, gripper opening |
 | `goal` | goal order as 4 colour ids bottom to top, padded with a "none" id |
 
-Block poses come only from the images. The simulator's true state goes along
-as `log/` keys, which DreamerV3 keeps out of the model (`main.py` drops them
-from the agent's observation space). Only the skill teachers, the pose probes
-and evaluation read them:
+Block poses come only from the images. Scalar diagnostics go along as `log/`
+keys, which DreamerV3 keeps out of the model (`main.py` drops them from the
+agent's observation space) and logs per episode. Its training loop accepts
+only scalar `log/` keys:
 
 | Key | Contents |
 |---|---|
-| `log/blocks` | per colour slot: present flag, position, orientation (quaternion), linear velocity; zeros when absent |
-| `log/progress` | tower prefix k and N |
+| `log/prefix` | tower prefix k |
+| `log/n` | number of blocks N |
+| `log/success` | 1 on the step the episode succeeds |
 | `log/sim_steps` | running total of control steps in this environment |
 
-The option environment adds two more `log/` keys, so both world models get
-exactly the same inputs:
+The option environment adds `log/duration`, the control steps the last option
+took, so both world models get exactly the same inputs.
+
+The simulator's full state is not an observation. Each environment returns it
+from a `privileged()` method, which the skill teachers, the planners (for the
+option mask), the pose probes and evaluation call directly:
 
 | Key | Contents |
 |---|---|
-| `log/option_mask` | which of the 9 options are valid now (read by planners) |
-| `log/duration` | control steps the last option took |
+| `blocks` | per colour slot: present flag, position, orientation (quaternion), linear velocity; zeros when absent |
+| `held` | colour of the held block, or -1 |
+| `option_mask` | which of the 9 options are valid now (option environment only) |
 
 ## Raw action space
 
@@ -211,7 +219,7 @@ rows.
 
   Block poses are read out of each model's latent states by a **pose probe**:
   a small MLP per model, fitted on posterior latents of separate held-out
-  real episodes to the true `log/blocks`, then frozen. Reported as:
+  real episodes to the true block poses from `privileged()`, then frozen. Reported as:
   - Block pose error at matched sim time (after 1, 2 and 3 options' worth of
     control steps): probe on the open-loop prediction vs the simulator.
   - Error per decision (after k decisions on each model's own time scale).
