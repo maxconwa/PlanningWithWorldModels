@@ -7,15 +7,21 @@ Plays one episode in each of --episodes worlds and writes
 outputs/eval/skill_<skill>/<who>_gate.json.
 """
 
-import argparse
-import json
+import os
 import pathlib
-
-import jax
-import numpy as np
+import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+# Run as a script: put the repository and DreamerV3 (for environments/) on
+# the path, and let MuJoCo Warp allocate GPU memory beside JAX.
+sys.path[:0] = [str(REPO), str(REPO / 'third_party' / 'dreamerv3')]
+os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
 
+import argparse  # noqa: E402
+import json  # noqa: E402
+
+import jax  # noqa: E402
+import numpy as np  # noqa: E402
 
 def success_rate(skill, policy, episodes=500, cameras=False, seed=0):
   """Share of worlds whose first episode ends in success."""

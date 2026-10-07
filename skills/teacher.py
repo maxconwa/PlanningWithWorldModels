@@ -8,16 +8,23 @@ and value parameters), config.json (settings and control steps used) and
 metrics.jsonl (one line per evaluation).
 """
 
-import argparse
-import functools
-import json
+import os
 import pathlib
-import pickle
-import time
-
-import jax
+import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+# Run as a script: put the repository and DreamerV3 (for environments/) on
+# the path, and let MuJoCo Warp allocate GPU memory beside JAX.
+sys.path[:0] = [str(REPO), str(REPO / 'third_party' / 'dreamerv3')]
+os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+
+import argparse  # noqa: E402
+import functools  # noqa: E402
+import json  # noqa: E402
+import pickle  # noqa: E402
+import time  # noqa: E402
+
+import jax  # noqa: E402
 
 TEACHER = dict(policy=(256, 256, 256), value=(256,) * 5)
 PPO = dict(
