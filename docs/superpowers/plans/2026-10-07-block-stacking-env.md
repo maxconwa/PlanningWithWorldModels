@@ -1334,7 +1334,7 @@ REGISTRY = {
 - [ ] **Step 4: Run the tests**
 
 Run: `$PY -m pytest tests/test_stack_env.py -q`
-Expected: `9 passed`. The bottom goal block starts on the table, so k is 1
+Expected: `8 passed`. The bottom goal block starts on the table, so k is 1
 at reset; `test_building_the_tower_succeeds` expects +1 for k going from 1
 to 2 and +1 for success. If it fails, print `env.prefix()` and
 `env.scene.held()` after `build_tower`.
@@ -1342,7 +1342,7 @@ to 2 and +1 for success. If it fails, print `env.prefix()` and
 - [ ] **Step 5: Run the whole suite**
 
 Run: `$PY -m pytest tests -q`
-Expected: all tests pass (38).
+Expected: all tests pass (36).
 
 - [ ] **Step 6: Commit**
 
