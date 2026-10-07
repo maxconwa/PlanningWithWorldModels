@@ -55,18 +55,32 @@ order, bottom to top.
   MuJoCo Menagerie (Apache 2.0), copied into `environments/assets/panda/`
   with its licence. The scene (floor as the table, blocks, cameras) is our
   own MJCF.
-- **Model file.** Menagerie's MJX variant of the Panda, used by both the CPU
-  simulator and MJX, so the two simulate the same model.
+- **Model file.** Menagerie's MJX variant of the Panda.
+- **Everything on the GPU.** Physics and rendering run in MJX with its Warp
+  backend (`mujoco-mjx[warp]`): MuJoCo Warp for the physics and MuJoCo Warp's
+  batch renderer for the cameras, as JAX functions over a batch of worlds.
+  Every stage (skill training, both Dreamer agents, planning and
+  evaluation) uses this one simulator and renderer, so a skill never sees
+  images from a different renderer than the one it was trained on. CPU
+  MuJoCo is used only in tests, as a reference for the model.
+- **Not Madrona.** Madrona-MJX is deprecated and needs JAX < 0.6 and CUDA
+  <= 12.5; the local RTX 5070 Ti (Blackwell) needs CUDA >= 12.8 and runs JAX
+  0.10.2. Its README points to MuJoCo Warp's renderer, used here.
 - **Physics** at 200 Hz with Menagerie's MJX solver settings (timestep
   0.005, implicitfast, 5 iterations); **control** at 20 Hz (10 physics steps
   per control step).
 - **Cameras.** A fixed workspace camera looking down at the table at about
   45 degrees, and a wrist camera on the gripper looking along it. Both
-  render 64 x 64 RGB through MuJoCo's offscreen renderer (EGL), once per
-  control step.
+  render 64 x 64 RGB once per control step.
 - **Arm controller.** Differential inverse kinematics from an end-effector
   target to joint position targets for the Panda's position actuators, with
-  the gripper pointing down and only yaw free.
+  the gripper pointing down and only yaw free. The Jacobian comes from
+  differentiating MJX's (JAX backend) forward kinematics, so the controller
+  is a JAX function too.
+- **Batched environments.** One environment object holds a batch of worlds
+  and steps them together on the GPU; worlds reset independently when their
+  episode ends. A single-world wrapper serves manual play and tools that
+  expect one environment.
 
 ## Observations
 
@@ -143,28 +157,36 @@ condition holds and a penalty otherwise.
 Each skill is trained in two stages:
 
 1. **State teacher.** PPO from privileged state (arm, block poses, target),
-   with Brax's PPO on MJX: thousands of parallel environments on the GPU, no
-   rendering. It uses its own dense shaped reward (reach, grasp, lift or
+   with Brax's PPO on the batched simulator: thousands of worlds on the GPU,
+   no rendering. It uses its own dense shaped reward (reach, grasp, lift or
    align, release), which the stacking agents never see.
 2. **Image student.** The deployed skill: a CNN policy on `workspace`,
    `wrist`, `arm` and the target, in JAX/Flax. It is trained with DAgger on
-   CPU MuJoCo with rendering: the student acts, the teacher labels each
-   visited state with its action and terminate decision, and the student is
-   trained on the growing dataset.
+   the batched simulator with rendering, on the GPU: the student acts, the
+   teacher labels each visited state with its action and terminate decision,
+   and the student is trained on the growing dataset.
 
 Start states for skill training are drawn from the same distribution as
 stacking episodes. Place starts with a block already in the gripper, set
 directly in the simulator state.
 
-**Gates,** each on 500 test episodes on CPU MuJoCo, the simulator the option
-environment uses:
+**Gates,** each on 500 test episodes on the simulator the option environment
+uses:
 
-- the teacher succeeds in at least 90%, which catches any gap between MJX and
-  CPU physics before distillation;
+- the teacher succeeds in at least 90% before distillation;
 - the student succeeds in at least 90% before the option agent is trained.
 
 ## Agents and training
 
+- **Stages.** Training runs in stages, each with the GPU to itself:
+  (1) environment and tests, (2) skills, (3) the raw-action Dreamer agent,
+  (4) the option Dreamer agent, (5) planning and evaluation. Within a
+  Dreamer stage the agent and the batched environment share the GPU in one
+  process, with JAX preallocation off.
+- **Batched driver.** DreamerV3's `embodied.Driver` steps environments one at
+  a time. `train.py` swaps in a driver with the same interface that steps
+  one batched environment (all `run.envs` worlds at once), as it already
+  swaps in `make_env`. DreamerV3 itself is unchanged.
 - **DreamerV3** (`third_party/dreamerv3` at `e3f0224`, unchanged), launched
   through `train.py` with `--task custom_stack` (raw) and
   `--task custom_stack_options` (options). Same config for both: `size12m`,
@@ -234,51 +256,55 @@ rows.
 
 ## Code layout
 
-- `environments/stack.py`: the MuJoCo scene, controller, task, reward and
-  success (`custom_stack`, raw actions).
-- `environments/stack_options.py`: the option environment
-  (`custom_stack_options`). It wraps `stack.py` and loads the trained skills.
 - `environments/assets/panda/`, `environments/assets/stack.xml`: the robot
   and scene.
-- `skills/mjx_env.py`: the pick and place tasks on MJX, sharing the model
-  file and start-state sampling with `stack.py`.
+- `environments/stack_scene.py`: building the model (with the wrist camera).
+- `environments/stack_sim.py`: the batched GPU simulator: physics substeps
+  and rendering.
+- `environments/stack_control.py`: the end-effector controller (JAX).
+- `environments/stack_task.py`: start states, tower prefix, held block,
+  reward and success (JAX).
+- `environments/stack.py`: the batched environment `BatchStack` and the
+  single-world `Stack` (`custom_stack`, raw actions).
+- `environments/batch_driver.py`: the batched driver `train.py` swaps in.
+- `environments/stack_options.py`: the option environment
+  (`custom_stack_options`). It wraps `BatchStack` and runs the trained
+  skills.
+- `skills/env.py`: the pick and place tasks on `BatchStack`'s simulator.
 - `skills/teacher.py`: Brax PPO training of the state teachers.
-- `skills/student.py`: the image policy network and DAgger distillation on
-  `stack.py`.
+- `skills/student.py`: the image policy network and DAgger distillation.
 - `skills/policy.py`: loading a trained student for the option environment.
 - `planning/search.py`: iCEM and sampled MuZero.
 - `planning/eval_model.py`: custom environments, continuous actions, success
   by N.
 - `planning/model_error.py`: model accuracy.
-- New dependencies in the `dreamerv3` conda env: `mujoco`, `mujoco-mjx` and
-  `brax`, all JAX-based (no torch).
+- New dependencies in the `dreamerv3` conda env: `mujoco`, `mujoco-mjx[warp]`
+  (which brings `warp-lang`) and `brax`, installed with JAX pinned at 0.10.2
+  (no torch).
 
 ## Build order
 
-Each step ends with a check before the next starts.
+Five stages, each with the GPU to itself. Each step ends with a check before
+the next starts.
 
-1. **Scene, controller and cameras.** Panda, table and blocks load in CPU
-   MuJoCo and MJX; the IK controller tracks end-effector targets; both
-   cameras render. Check: drive the arm by hand through
-   `environments/play.py`, which shows both cameras, and step the same scene
-   in MJX.
-2. **Raw stacking env.** Observations, reward, prefix, success, start states.
-   Check: unit tests on hand-built states (correct and wrong towers, held
-   block, toppled tower), and a `--configs debug` DreamerV3 run of 400 steps.
-3. **Skills.** State teachers in MJX, then image students by DAgger, both
-   with learned termination. Check: the teacher gate, then the student gate,
-   on CPU MuJoCo.
-4. **Option env.** Masks, invalid-option cost, duration, summed reward,
-   time-limit cut-off. Check: unit tests, plus a scripted sequence of valid
-   options that builds a correct N = 3 tower.
-5. **Pilot.** N = 2 only, both agents, one seed, local. Measures mean option
-   duration and learning speed, to set the step budget.
-6. **Main runs.** N in {2, 3, 4}, both agents, one seed, at the budget from
-   the pilot.
-7. **Planners.** iCEM and sampled MuZero. Check: on the option side, sampled
-   MuZero with K = 9 matches PUCT within noise, and both planners beat a
-   random-action baseline on the trained models.
-8. **Evaluation.** The 2 x 3 table (plus the extra PUCT and Gumbel rows), the
+1. **Environment and tests.** Install the Warp backend and check it renders on
+   this GPU; the scene; the batched simulator; task logic; the controller;
+   `BatchStack` and `Stack`; manual play; the batched driver and a short
+   DreamerV3 run on `custom_stack`. Checks: unit tests, grasp-and-lift, and
+   the Dreamer run.
+2. **Skills.** State teachers by Brax PPO, then image students by DAgger,
+   both with learned termination, all on the GPU. Checks: the teacher gate,
+   then the student gate.
+3. **Raw-action agent.** DreamerV3 on `custom_stack`: an N = 2 pilot to
+   measure learning speed, then the main run over N in {2, 3, 4}.
+4. **Option agent.** The option environment (masks, invalid-option cost,
+   duration, summed reward, time-limit cut-off; checked by tests and a
+   scripted N = 3 tower), then DreamerV3 on `custom_stack_options`: the N = 2
+   pilot sets the budget from the mean option duration, then the main run at
+   the same control-step budget as stage 3.
+5. **Planning and evaluation.** iCEM and sampled MuZero (sampled MuZero with
+   K = 9 matches PUCT within noise on the option side; both beat a random
+   baseline), the 2 x 3 table plus the extra PUCT and Gumbel rows, the
    skill-accounting variant, the pose probes, and the model-accuracy
    measures.
 
