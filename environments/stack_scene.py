@@ -17,6 +17,8 @@ CONTROL_DT = 0.05
 HOME_ARM = np.array([0, 0.3, 0, -1.57079, 0, 2.0, -0.7853])
 OPEN, CLOSED = 0.04, 0.0  # Finger targets.
 OPEN_WIDTH = 0.07  # Finger gap above which the gripper counts as open.
+ARM_BODIES = tuple(f'link{i}' for i in range(1, 8)) + (
+    'hand', 'left_finger', 'right_finger')
 PARK = np.array([[1.5, -0.3 + 0.2 * c, HALF] for c in range(len(COLORS))])
 
 
@@ -28,6 +30,10 @@ def build_model():
   spec.meshdir = str(ASSETS / 'panda' / 'assets')
   for mesh in spec.meshes:
     mesh.file = pathlib.Path(mesh.file).name
+  # Gravity compensation on the arm, as the real Panda's controller does;
+  # without it the position servos sag a few centimetres below target.
+  for name in ARM_BODIES:
+    spec.body(name).gravcomp = 1
   # In the hand frame z points from the wrist to the fingertips; turning the
   # camera half a turn about x makes it look along z, past the fingers.
   spec.body('hand').add_camera(
