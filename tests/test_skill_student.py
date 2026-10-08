@@ -40,3 +40,16 @@ def test_saved_student_reloads(tmp_path):
          'proprio': jnp.ones((2, 25))}
   np.testing.assert_allclose(np.asarray(policy(obs)),
                              np.asarray(load_student(tmp_path)(obs)))
+
+
+def test_scripted_teacher_labels_states():
+  """Students can learn from the scripted controllers (the stage 2 teachers
+  until PPO teachers pass their gate)."""
+  from skills.student import teacher_policy
+  state = jnp.zeros((4, 85)).at[:, 75].set(1.0)
+  for skill in ('pick', 'place'):
+    labels = teacher_policy(skill, 'scripted')(state)
+    assert labels.shape == (4, 5)
+    np.testing.assert_allclose(
+        np.asarray(labels),
+        np.asarray(getattr(scripted, skill)(state)))

@@ -2,13 +2,16 @@
 
   python skills/student.py --skill pick
   python skills/student.py --skill place --iterations 30
+  python skills/student.py --skill pick --teacher ppo
 
 The student sees what the option environment will give it: both cameras,
 the arm, the target and the time fraction. Each iteration plays the
 batched skill environment with the student acting in each world (the
 teacher acts with probability 0.5 ** iteration instead), labels every
 visited state with the teacher's action, and trains the student on all
-labels so far. Writes outputs/train/skill_<skill>_student/.
+labels so far. The teacher is the scripted controller (skills/scripted.py)
+or a PPO teacher from outputs/train/skill_<skill>_teacher. Writes
+outputs/train/skill_<skill>_student/.
 """
 
 import os
@@ -135,18 +138,28 @@ def dagger(skill, teacher, out, iterations=20, num_envs=128, rollout=300,
   return config
 
 
+def teacher_policy(skill, kind):
+  """The labelling policy: state obs (B, 85) to actions (B, 5)."""
+  if kind == 'scripted':
+    from skills import scripted
+    return getattr(scripted, skill)
+  from skills.policy import load_teacher
+  return load_teacher(REPO / 'outputs' / 'train' / f'skill_{skill}_teacher')
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--skill', choices=['pick', 'place'], required=True)
   parser.add_argument('--iterations', type=int, default=20)
   parser.add_argument('--num-envs', type=int, default=128)
   parser.add_argument('--seed', type=int, default=0)
+  parser.add_argument('--teacher', choices=['scripted', 'ppo'],
+                      default='scripted', help='which policy labels states')
   args = parser.parse_args()
-  from skills.policy import load_teacher
   runs = REPO / 'outputs' / 'train'
-  teacher = load_teacher(runs / f'skill_{args.skill}_teacher')
-  config = dagger(args.skill, teacher, runs / f'skill_{args.skill}_student',
-                  args.iterations, args.num_envs, seed=args.seed)
+  config = dagger(args.skill, teacher_policy(args.skill, args.teacher),
+                  runs / f'skill_{args.skill}_student', args.iterations,
+                  args.num_envs, seed=args.seed)
   print(f"{config['control_steps']:,} control steps in "
         f"{config['seconds'] / 60:.0f} min")
 

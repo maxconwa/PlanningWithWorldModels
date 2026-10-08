@@ -156,7 +156,10 @@ or after 150 control steps; success earns a bonus. A learned terminate output
 was tried first and dropped: PPO policies learned to end skills at once, or
 just short of the 5 cm lift.
 
-Each skill is trained in two stages:
+Each skill is trained in two stages. The state teachers below are scripted
+controllers for now (`skills/scripted.py`; pick 100%, place 96.6% of 500
+starts): PPO teachers reached 74% on pick after 200M steps, so improving
+them is a follow-up.
 
 1. **State teacher.** PPO from privileged state (arm, block poses, target),
    with Brax's PPO on the batched simulator: thousands of worlds on the GPU,
