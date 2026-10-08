@@ -49,6 +49,9 @@ under the same emulator settings and number of episodes.
     `rew`, `con`, `val`, `pol` heads). A second world model should be loaded
     by its own module that exposes the same operations, rather than by
     branches inside the planners.
+- `skills/`: the pick and place skills behind the block-stacking options
+  (image students distilled from scripted teachers); see
+  `skills/README.md`.
 - `slurm/`: Delta job scripts, `activate.sh`, and the local helpers
   `ssh_delta.sh` and `sync_from_delta.sh`.
 - `outputs/`: `train/<run>/` holds training runs (DreamerV3 logdirs with the
