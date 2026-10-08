@@ -108,7 +108,10 @@ under the same emulator settings and number of episodes.
   (`--jax.profiler`), since tracing beside MuJoCo Warp crashes the run. The
   replay buffer lives in RAM, about 26 KB per step with both cameras, so
   locally (31 GB) train with `--replay.size 4e5`; DreamerV3's default of
-  5e6 had the process killed for memory at about 500k steps.
+  5e6 had the process killed for memory at about 500k steps. Also set
+  `MALLOC_MMAP_THRESHOLD_=1048576`: replay chunks are 12 MB arrays, and
+  glibc otherwise keeps freed ones in its heap, so the process grew about
+  0.1 GB a minute until the kernel killed it.
 - `dreamer_fixes.py` rebuilds DreamerV3's `Agent.report`, which fails with
   more than one image observation; `train.py` imports it.
 - Local training writes to `outputs/train/<run>/` and logs to
