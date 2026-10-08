@@ -105,7 +105,10 @@ under the same emulator settings and number of episodes.
   at 0.10.2. Its options are flags such as `--env.stack.n 2`: `train.py`
   adds the config sections in `environments.CONFIGS` to DreamerV3's
   defaults. `train.py` also turns DreamerV3's JAX profiler off
-  (`--jax.profiler`), since tracing beside MuJoCo Warp crashes the run.
+  (`--jax.profiler`), since tracing beside MuJoCo Warp crashes the run. The
+  replay buffer lives in RAM, about 26 KB per step with both cameras, so
+  locally (31 GB) train with `--replay.size 4e5`; DreamerV3's default of
+  5e6 had the process killed for memory at about 500k steps.
 - `dreamer_fixes.py` rebuilds DreamerV3's `Agent.report`, which fails with
   more than one image observation; `train.py` imports it.
 - Local training writes to `outputs/train/<run>/` and logs to
