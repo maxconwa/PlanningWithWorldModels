@@ -10,6 +10,7 @@ every built-in task still works. Custom environments are --task custom_<name>:
 import os
 import pathlib
 import sys
+import types
 
 HERE = pathlib.Path(__file__).resolve().parent
 DREAMER = HERE / 'third_party' / 'dreamerv3'
@@ -22,9 +23,24 @@ import jax_compat  # noqa: E402,F401
 from dreamerv3 import main  # noqa: E402
 import dreamer_fixes  # noqa: E402,F401
 import embodied  # noqa: E402
+import environments  # noqa: E402
+import ruamel.yaml as yaml  # noqa: E402
 from environments import batch_driver  # noqa: E402
 
 builtin_make_env = main.make_env
+
+
+class ConfigYaml:
+  """Loads DreamerV3's configs.yaml with the custom environments' config
+  sections added to its defaults."""
+
+  def __init__(self, **kwargs):
+    self.yaml = yaml.YAML(**kwargs)
+
+  def load(self, text):
+    configs = self.yaml.load(text)
+    configs['defaults']['env'].update(environments.CONFIGS)
+    return configs
 
 
 BATCHED = False
@@ -35,7 +51,6 @@ def make_env(config, index, **overrides):
   suite, task = config.task.split('_', 1)
   if suite != 'custom':
     return builtin_make_env(config, index, **overrides)
-  import environments
   ctor = environments.lookup(task)
   BATCHED = getattr(ctor, 'BATCHED', False)
   options = config.env.get(getattr(ctor, 'OPTIONS', 'custom'), {})
@@ -45,10 +60,12 @@ def make_env(config, index, **overrides):
   return main.wrap_env(ctor(task, **kwargs), config)
 
 
-# main.main() looks make_env up by name when it builds the environments, and
-# DreamerV3's run scripts look embodied.Driver up when they make the driver.
-# The agent is built first, through make_env, so BATCHED is set by then.
+# main.main() loads its configs through the module's yaml name and looks
+# make_env up by name when it builds the environments, and DreamerV3's run
+# scripts look embodied.Driver up when they make the driver. The agent is
+# built first, through make_env, so BATCHED is set by then.
 main.make_env = make_env
+main.yaml = types.SimpleNamespace(YAML=ConfigYaml)
 embodied.Driver = batch_driver.make_driver(embodied.Driver, lambda: BATCHED)
 
 if __name__ == '__main__':

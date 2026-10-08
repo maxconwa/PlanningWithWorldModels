@@ -55,6 +55,7 @@ def options(name, overrides):
   """The environment's training options, with key=value overrides applied."""
   section = getattr(environments.lookup(name), 'OPTIONS', 'custom')
   config = yaml.YAML(typ='safe').load(CONFIGS.read_text())
+  config['defaults']['env'].update(environments.CONFIGS)
   opts = dict(config['defaults']['env'].get(section, {}))
   for item in overrides:
     key, value = item.split('=', 1)

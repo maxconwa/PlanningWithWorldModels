@@ -7,7 +7,9 @@ are needed only by the runs that use it. Train on one with train.py and
 
 A class takes its options from the config section named by its OPTIONS
 attribute (config.env.custom by default), so an environment built on a
-DreamerV3 suite can share that suite's options.
+DreamerV3 suite can share that suite's options. CONFIGS holds the defaults of
+sections DreamerV3 lacks; train.py adds them, so flags such as --env.stack.n
+can set them.
 """
 
 import importlib
@@ -16,6 +18,10 @@ REGISTRY = {
     'catch': 'environments.catch:Catch',
     'stack': 'environments.stack:Stack',
     'tetris': 'environments.tetris:Tetris',
+}
+
+CONFIGS = {
+    'stack': {'n': 0, 'prestack': 0.3},
 }
 
 

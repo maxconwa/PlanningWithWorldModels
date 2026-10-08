@@ -190,6 +190,7 @@ class BatchStack:
 class Stack(embodied.Env):
 
   BATCHED = True
+  OPTIONS = 'stack'
 
   def __init__(self, task_name, batch=1, size=(64, 64), n=0, prestack=0.3,
                seed=None):
