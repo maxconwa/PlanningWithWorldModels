@@ -24,5 +24,21 @@ after 150 control steps.
 - `evaluate.py`, `policy.py`: the gates, and loading skills as JAX functions
   (`load_student` for the option environment of stage 4).
 
+## Running a student elsewhere (stage 4)
+
+    from skills.env import student_proprio
+    from skills.policy import student_params
+    from skills.student import act
+    params = student_params('outputs/train/skill_pick_student')   # on device
+    obs = {'workspace': ..., 'wrist': ...,          # uint8 (B, 64, 64, 3)
+           'proprio': student_proprio(arm, target, steps)}       # (B, 25)
+    action = jax.jit(act)(params, obs)               # (B, 5) in [-1, 1]
+
+`arm` is `environments.stack.arm_features` (19); `target` is a colour index
+0-3, or 4 for the table; `steps` counts control steps since the skill
+started (the time fraction is steps / 150). Passing `params` as an argument
+keeps them out of the compiled step and works under DreamerV3's transfer
+guard.
+
 Runs are in `outputs/train/skill_<skill>_{teacher,student}/`; each
 `config.json` records `control_steps`, the control steps spent training it.

@@ -84,3 +84,22 @@ def test_best_keeper_saves_the_parameters_that_were_evaluated():
     keeper.evaluated(step, success)
   assert saved[-1] == (20, 'p20')
   assert (keeper.step, keeper.success) == (20, 0.8)
+
+
+def test_saved_teacher_matches_the_trained_one(tmp_path):
+  """load_teacher rebuilds exactly what Brax trained (network and
+  normaliser), from the best-evaluated parameters."""
+  config, make_policy, params = train(
+      'pick', tmp_path, num_envs=64, timesteps=64 * 10 * 4, batch_size=2,
+      num_minibatches=32, num_evals=2, num_eval_envs=16, return_policy=True)
+  obs = jax.random.normal(jax.random.PRNGKey(2), (6, 85))
+  brax = make_policy(params, deterministic=True)(
+      {'state': obs}, jax.random.PRNGKey(0))[0]
+  np.testing.assert_allclose(np.asarray(load_teacher(tmp_path)(obs)),
+                             np.asarray(brax), atol=1e-6)
+
+
+def test_short_evaluations_do_not_overwrite_the_gate():
+  from skills.evaluate import result_path
+  assert result_path('pick', 'student', 500).name == 'student_gate.json'
+  assert result_path('pick', 'student', 100).name == 'student_100.json'

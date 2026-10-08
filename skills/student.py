@@ -1,7 +1,7 @@
 """Distil a skill's state teacher into an image student with DAgger.
 
   python skills/student.py --skill pick
-  python skills/student.py --skill place --iterations 30
+  python skills/student.py --skill place --iterations 40
   python skills/student.py --skill pick --teacher ppo
 
 The student sees what the option environment will give it: both cameras,
@@ -66,8 +66,11 @@ def _loss(params, images, proprio, target):
   return jnp.mean((jnp.tanh(out) - target) ** 2)
 
 
-def dagger(skill, teacher, out, iterations=20, num_envs=128, rollout=300,
-           stride=2, train_steps=2000, capacity=150_000, batch=256, seed=0):
+def dagger(skill, teacher, out, iterations=30, num_envs=128, rollout=300,
+           stride=2, train_steps=2000, capacity=150_000, batch=256, seed=0,
+           teacher_name='scripted'):
+  """Trains a student; returns its config and final parameters, which are
+  also written to out/params.pkl."""
   from skills.env import PROPRIO_DIM, SkillEnv
   out = pathlib.Path(out)
   out.mkdir(parents=True, exist_ok=True)
@@ -130,12 +133,13 @@ def dagger(skill, teacher, out, iterations=20, num_envs=128, rollout=300,
     print(json.dumps(row), flush=True)
   with (out / 'params.pkl').open('wb') as f:
     pickle.dump(jax.device_get(params), f)
-  config = dict(skill=skill, iterations=iterations, num_envs=num_envs,
+  config = dict(skill=skill, teacher=teacher_name, iterations=iterations,
+                num_envs=num_envs,
                 rollout=rollout, stride=stride, train_steps=train_steps,
                 capacity=capacity, batch=batch, seed=seed,
                 control_steps=steps, seconds=time.time() - start)
   (out / 'config.json').write_text(json.dumps(config, indent=2))
-  return config
+  return config, params
 
 
 def teacher_policy(skill, kind):
@@ -150,16 +154,18 @@ def teacher_policy(skill, kind):
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--skill', choices=['pick', 'place'], required=True)
-  parser.add_argument('--iterations', type=int, default=20)
-  parser.add_argument('--num-envs', type=int, default=128)
+  parser.add_argument('--iterations', type=int, default=30,
+                      help='DAgger iterations (30 trained the gated students)')
+  parser.add_argument('--num-envs', type=int, default=128,
+                      help='worlds rolled out per iteration')
   parser.add_argument('--seed', type=int, default=0)
   parser.add_argument('--teacher', choices=['scripted', 'ppo'],
                       default='scripted', help='which policy labels states')
   args = parser.parse_args()
   runs = REPO / 'outputs' / 'train'
-  config = dagger(args.skill, teacher_policy(args.skill, args.teacher),
-                  runs / f'skill_{args.skill}_student', args.iterations,
-                  args.num_envs, seed=args.seed)
+  config, _ = dagger(args.skill, teacher_policy(args.skill, args.teacher),
+                     runs / f'skill_{args.skill}_student', args.iterations,
+                     args.num_envs, seed=args.seed, teacher_name=args.teacher)
   print(f"{config['control_steps']:,} control steps in "
         f"{config['seconds'] / 60:.0f} min")
 

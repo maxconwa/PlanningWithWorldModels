@@ -23,6 +23,13 @@ import json  # noqa: E402
 import jax  # noqa: E402
 import numpy as np  # noqa: E402
 
+def result_path(skill, who, episodes):
+  """Where a result goes: the gate file for 500 episodes, a separate file
+  for any other count, so quick checks never overwrite a gate."""
+  name = f'{who}_gate.json' if episodes == 500 else f'{who}_{episodes}.json'
+  return REPO / 'outputs' / 'eval' / f'skill_{skill}' / name
+
+
 def success_rate(skill, policy, episodes=500, cameras=False, seed=0):
   """Share of worlds whose first episode ends in success."""
   from skills.env import SkillEnv
@@ -64,11 +71,11 @@ def main():
     script = getattr(scripted, args.skill)
     policy, cameras = (lambda obs: script(obs['state'])), False
   rate = success_rate(args.skill, policy, args.episodes, cameras, args.seed)
-  out = REPO / 'outputs' / 'eval' / f'skill_{args.skill}'
-  out.mkdir(parents=True, exist_ok=True)
+  path = result_path(args.skill, args.who, args.episodes)
+  path.parent.mkdir(parents=True, exist_ok=True)
   result = dict(skill=args.skill, who=args.who, episodes=args.episodes,
                 seed=args.seed, success=rate, passed=rate >= 0.9)
-  (out / f'{args.who}_gate.json').write_text(json.dumps(result, indent=2))
+  path.write_text(json.dumps(result, indent=2))
   print(json.dumps(result))
 
 

@@ -30,6 +30,15 @@ SETTLE = 10  # Physics steps after a new start.
 METRICS = ('success',)
 
 
+def student_proprio(arm, target, steps):
+  """The image student's non-image input (B, PROPRIO_DIM): the arm
+  features (19), the target one-hot over colours 0-3 and the table (4), and
+  the fraction of the skill's EPISODE steps used."""
+  return jnp.concatenate([
+      arm, jax.nn.one_hot(target, 5),
+      (steps / tasks.EPISODE)[:, None]], -1).astype(jnp.float32)
+
+
 class SkillEnv(Env):
 
   def __init__(self, skill, num_envs, cameras=False, prestack=0.3,
@@ -171,6 +180,6 @@ class SkillEnv(Env):
         arm, blocks.reshape(self.num_envs, -1), target, held, time], -1)}
     if self.cameras:
       workspace, wrist, d = self.sim.render(d)
-      obs.update(workspace=workspace, wrist=wrist,
-                 proprio=jnp.concatenate([arm, target, time], -1))
+      obs.update(workspace=workspace, wrist=wrist, proprio=student_proprio(
+          arm, task['target'], info['steps']))
     return obs, d

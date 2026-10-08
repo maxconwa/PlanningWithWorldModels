@@ -86,7 +86,9 @@ def network_factory():
 
 
 def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
-          **overrides):
+          return_policy=False, **overrides):
+  """Trains a teacher and writes it to `out`; returns its config, and with
+  `return_policy` also Brax's make_policy and the kept parameters."""
   from brax.training.agents.ppo import train as ppo
   from skills.env import SkillEnv
   out = pathlib.Path(out)
@@ -96,7 +98,10 @@ def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
   last = {'step': 0}
   start = time.time()
 
+  kept = {}
+
   def save(step, params):
+    kept['params'] = params
     with (out / 'params.pkl').open('wb') as f:
       pickle.dump(params, f)
 
@@ -116,7 +121,7 @@ def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
     del make_policy
     keeper.received(int(step), jax.device_get(params))
 
-  ppo.train(
+  make_policy, _, _ = ppo.train(
       environment=SkillEnv(skill, num_envs, **TRAIN_STARTS[skill]),
       eval_env=SkillEnv(skill, settings['num_eval_envs']),
       wrap_env=False, num_envs=num_envs, num_timesteps=timesteps,
@@ -129,6 +134,8 @@ def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
                 train_starts=TRAIN_STARTS[skill],
                 seconds=time.time() - start)
   (out / 'config.json').write_text(json.dumps(config, indent=2))
+  if return_policy:
+    return config, make_policy, kept['params']
   return config
 
 

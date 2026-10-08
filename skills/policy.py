@@ -28,9 +28,18 @@ def config(path):
   return json.loads((pathlib.Path(path) / 'config.json').read_text())
 
 
-def load_student(path):
-  """The image student's policy: obs dict with workspace, wrist and
-  proprio to actions (B, 5)."""
-  from skills import student
+def student_params(path):
+  """A trained student's parameters, on the device. Pass them into jitted
+  code with skills.student.act(params, obs), so they are an argument rather
+  than constants baked into every compiled step."""
   params = pickle.loads((pathlib.Path(path) / 'params.pkl').read_bytes())
+  return jax.device_put(params)
+
+
+def load_student(path):
+  """The image student's policy: obs dict with workspace, wrist (uint8
+  (B, 64, 64, 3)) and proprio (skills.env.student_proprio) to actions
+  (B, 5)."""
+  from skills import student
+  params = student_params(path)
   return lambda obs: student.act(params, obs)
