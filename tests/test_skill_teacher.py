@@ -69,3 +69,18 @@ def test_observation_normaliser_has_a_floor():
   from skills.teacher import NUM_ENVS, PPO
   assert PPO['normalize_observations_std_eps'] >= 0.01
   assert NUM_ENVS % (PPO['batch_size'] * PPO['num_minibatches']) == 0
+
+
+def test_best_keeper_saves_the_parameters_that_were_evaluated():
+  """Brax hands over parameters before evaluating them (after, at step 0);
+  the kept parameters must be the ones whose evaluation was best."""
+  from skills.teacher import BestKeeper
+  saved = []
+  keeper = BestKeeper(lambda step, params: saved.append((step, params)))
+  keeper.evaluated(0, 0.0)
+  keeper.received(0, 'p0')
+  for step, success in ((10, 0.5), (20, 0.8), (30, 0.6)):
+    keeper.received(step, f'p{step}')
+    keeper.evaluated(step, success)
+  assert saved[-1] == (20, 'p20')
+  assert (keeper.step, keeper.success) == (20, 0.8)

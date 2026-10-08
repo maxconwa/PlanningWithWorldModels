@@ -47,6 +47,35 @@ NUM_ENVS = 6144
 TRAIN_STARTS = dict(pick=dict(prestack=0.6, stacked=0.5), place=dict())
 
 
+class BestKeeper:
+  """Keeps the parameters with the best evaluation. Brax hands each set of
+  parameters over before evaluating it (after, for the initial set), so a
+  set waits here until its evaluation arrives. PPO here can collapse late,
+  so the best evaluation is kept rather than the last."""
+
+  def __init__(self, save):
+    self.save = save
+    self.step, self.success = None, -1.0
+    self.pending, self.scores = None, {}
+
+  def received(self, step, params):
+    self.pending = (step, params)
+    self._decide()
+
+  def evaluated(self, step, success):
+    self.scores[step] = success
+    self._decide()
+
+  def _decide(self):
+    if self.pending is None or self.pending[0] not in self.scores:
+      return
+    step, params = self.pending
+    self.pending = None
+    if self.scores[step] > self.success:
+      self.step, self.success = step, self.scores[step]
+      self.save(step, params)
+
+
 def network_factory():
   from brax.training.agents.ppo import networks
   return functools.partial(
@@ -65,27 +94,27 @@ def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
   settings = {**PPO, **overrides}
   log = (out / 'metrics.jsonl').open('w')
   last = {'step': 0}
-  best = {'step': None, 'success': -1.0}
   start = time.time()
+
+  def save(step, params):
+    with (out / 'params.pkl').open('wb') as f:
+      pickle.dump(params, f)
+
+  keeper = BestKeeper(save)
 
   def progress(step, metrics):
     row = {'step': int(step), 'seconds': time.time() - start}
     row.update({k: float(v) for k, v in metrics.items()})
     last.update(row)
+    keeper.evaluated(int(step), row.get('eval/episode_success', -1.0))
     log.write(json.dumps(row) + '\n')
     log.flush()
     print(f"{step:>12,}  success {row.get('eval/episode_success', 0):.3f}"
           f"  reward {row.get('eval/episode_reward', 0):.2f}", flush=True)
 
   def keep_best(step, make_policy, params):
-    # PPO here can collapse late, so the saved parameters are those of the
-    # best evaluation so far rather than the last.
     del make_policy
-    success = last.get('eval/episode_success', -1.0)
-    if success > best['success']:
-      best.update(step=int(step), success=success)
-      with (out / 'params.pkl').open('wb') as f:
-        pickle.dump(jax.device_get(params), f)
+    keeper.received(int(step), jax.device_get(params))
 
   ppo.train(
       environment=SkillEnv(skill, num_envs, **TRAIN_STARTS[skill]),
@@ -96,7 +125,7 @@ def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
   config = dict(skill=skill, num_envs=num_envs, timesteps=timesteps,
                 seed=seed, network=TEACHER, ppo=settings,
                 control_steps=max(last['step'], timesteps),
-                best_step=best['step'], best_success=best['success'],
+                best_step=keeper.step, best_success=keeper.success,
                 train_starts=TRAIN_STARTS[skill],
                 seconds=time.time() - start)
   (out / 'config.json').write_text(json.dumps(config, indent=2))
