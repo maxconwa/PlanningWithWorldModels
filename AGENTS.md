@@ -102,7 +102,10 @@ under the same emulator settings and number of episodes.
   process (MJX Warp backend). Train it with `--jax.prealloc False`, and run
   `python -m pytest tests` only while no other GPU process is up. Install
   its packages with `pip install -c constraints.txt ...`, which keeps JAX
-  at 0.10.2.
+  at 0.10.2. Its options are flags such as `--env.stack.n 2`: `train.py`
+  adds the config sections in `environments.CONFIGS` to DreamerV3's
+  defaults. `train.py` also turns DreamerV3's JAX profiler off
+  (`--jax.profiler`), since tracing beside MuJoCo Warp crashes the run.
 - `dreamer_fixes.py` rebuilds DreamerV3's `Agent.report`, which fails with
   more than one image observation; `train.py` imports it.
 - Local training writes to `outputs/train/<run>/` and logs to
