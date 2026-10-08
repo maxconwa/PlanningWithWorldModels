@@ -32,7 +32,8 @@ builtin_make_env = main.make_env
 
 class ConfigYaml:
   """Loads DreamerV3's configs.yaml with the custom environments' config
-  sections added to its defaults."""
+  sections added to its defaults, and jax.profiler off: tracing the GPU
+  beside MuJoCo Warp fails with CUDA_ERROR_LAUNCH_FAILED."""
 
   def __init__(self, **kwargs):
     self.yaml = yaml.YAML(**kwargs)
@@ -40,6 +41,7 @@ class ConfigYaml:
   def load(self, text):
     configs = self.yaml.load(text)
     configs['defaults']['env'].update(environments.CONFIGS)
+    configs['defaults']['jax']['profiler'] = False
     return configs
 
 

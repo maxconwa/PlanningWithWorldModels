@@ -25,3 +25,9 @@ def test_stack_options_reach_the_env(config):
   while hasattr(env, 'env') and not hasattr(env, 'options'):
     env = env.env
   assert env.options == dict(n=2, prestack=0.5)
+
+
+def test_profiler_is_off_and_settable(config):
+  # Tracing the GPU beside MuJoCo Warp fails with CUDA_ERROR_LAUNCH_FAILED.
+  assert config().jax.profiler is False
+  assert config('--jax.profiler', 'True').jax.profiler is True
