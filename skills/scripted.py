@@ -36,10 +36,9 @@ def _turn(ee_yaw, block_yaw):
   return jnp.clip(GAIN * err / MAX_YAW, -1, 1), jnp.abs(err) < YAW_OK
 
 
-def _act(ee, want, turn, grip, stop):
+def _act(ee, want, turn, grip):
   move = jnp.clip(GAIN * (want - ee) / MAX_STEP, -1, 1)
-  return jnp.concatenate([move, turn[:, None], grip[:, None],
-                          stop[:, None]], -1)
+  return jnp.concatenate([move, turn[:, None], grip[:, None]], -1)
 
 
 def pick(state):
@@ -52,11 +51,10 @@ def pick(state):
   above = p + jnp.array([0.0, 0.0, 0.08])
   want = jnp.where((xy_ok & aligned)[:, None], p, above)
   near = jnp.linalg.norm(s['ee'] - p, axis=-1) < ALIGN
-  lifted = held & (p[:, 2] >= 0.21)
   want = jnp.where(held[:, None], s['ee'] + jnp.array([0.0, 0.0, 0.03]),
                    want)
   grip = jnp.where(held | near, 1.0, -1.0)
-  return _act(s['ee'], want, turn, grip, jnp.where(lifted, 1.0, -1.0))
+  return _act(s['ee'], want, turn, grip)
 
 
 def place(state):
@@ -85,7 +83,5 @@ def place(state):
   want = jnp.where(holding[:, None], want,
                    s['ee'] + jnp.array([0.0, 0.0, 0.03]))
   grip = jnp.where(holding & ~down, 1.0, -1.0)
-  raised = s['ee'][:, 2] - (p[:, 2] + HALF) >= 0.055
-  stop = ~holding & raised & (s['opening'] > 0.07)
   turn = jnp.where(holding, turn, 0.0)
-  return _act(s['ee'], want, turn, grip, jnp.where(stop, 1.0, -1.0))
+  return _act(s['ee'], want, turn, grip)

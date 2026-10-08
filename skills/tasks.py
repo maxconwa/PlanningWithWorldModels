@@ -3,9 +3,8 @@ picked, how far a block is lifted, whether a placement is done, start
 states, and the shaped potentials the teachers learn from.
 
 A teacher's reward is the change in its potential each step, plus
-SUCCESS_BONUS when it ends the skill having succeeded, or -FAIL_PENALTY when
-it ends it without. The potentials are for training only; the stacking agents
-never see them.
+SUCCESS_BONUS on the step the skill succeeds, which ends it. The potentials
+are for training only; the stacking agents never see them.
 """
 
 import jax
@@ -17,13 +16,12 @@ from environments.stack_task import NONE, XY_TOL, Z_TOL, sample_start
 
 EPISODE = 150  # Control steps before a skill times out.
 LIFT = 0.05  # How far a picked block must clear what is under it.
-# The pick potential keeps rising to here, past LIFT, so a policy ends the
-# skill clear of the success line rather than on it.
+# The pick potential keeps rising to here, past LIFT, so a policy lifts
+# clear of the success line rather than hovering on it.
 LIFT_REWARD = 0.07
 RAISE = 0.05  # How far the gripper rises above a placed block.
 TABLE = NONE  # Place target index for the table.
 SUCCESS_BONUS = 5.0
-FAIL_PENALTY = 1.0
 NEAR_XY = 0.03  # Blocks closer than this horizontally are in one stack.
 SITE_LO = (0.40, -0.15, 0.17)  # Where place starts hold the block.
 SITE_HI = (0.60, 0.15, 0.22)

@@ -32,7 +32,7 @@ def test_saved_teacher_reloads(tmp_path):
   policy = load_teacher(tmp_path)
   obs = jax.random.normal(jax.random.PRNGKey(0), (5, 85))
   a, b = np.asarray(policy(obs)), np.asarray(jax.jit(policy)(obs))
-  assert a.shape == (5, 6) and np.abs(a).max() <= 1.0
+  assert a.shape == (5, 5) and np.abs(a).max() <= 1.0
   np.testing.assert_allclose(a, b, atol=1e-6)
   again = np.asarray(load_teacher(tmp_path)(obs))
   np.testing.assert_allclose(a, again, atol=1e-6)

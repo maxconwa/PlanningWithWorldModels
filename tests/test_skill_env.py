@@ -5,7 +5,7 @@ import pytest
 
 from skills import scripted
 from skills.env import ACTION_DIM, PROPRIO_DIM, STATE_DIM, SkillEnv
-from skills.tasks import EPISODE, FAIL_PENALTY
+from skills.tasks import EPISODE, SUCCESS_BONUS
 
 
 def start(skill, batch, cameras=False, seed=0):
@@ -33,7 +33,7 @@ def run(env, state, step, policy, steps=EPISODE):
 def test_reset_shapes(skill):
   env, state, _ = start(skill, 8)
   assert state.obs['state'].shape == (8, STATE_DIM)
-  assert env.action_size == ACTION_DIM
+  assert env.action_size == ACTION_DIM == 5
   assert np.isfinite(np.asarray(state.obs['state'])).all()
 
 
@@ -51,19 +51,25 @@ def test_place_start_holds_the_block():
   assert held[np.arange(64), block].mean() >= 0.95
 
 
-def test_stopping_without_success_is_penalised():
-  env, state, step = start('pick', 8)
-  stop = jnp.zeros((8, ACTION_DIM)).at[:, 5].set(1.0)
-  state = step(state, stop)
-  assert (np.asarray(state.done) == 1).all()
-  assert (np.asarray(state.metrics['success']) == 0).all()
-  assert (np.asarray(state.reward) < -FAIL_PENALTY + 0.2).all()
-  assert (np.asarray(state.info['steps']) == 0).all()  # Restarted.
+def test_success_ends_the_skill_with_the_bonus():
+  """The environment, not the policy, ends a skill: on the step its
+  success condition holds, or at the timeout."""
+  env, state, step = start('pick', 32, seed=3)
+  successes = 0
+  for _ in range(EPISODE):
+    state = step(state, scripted.pick(state.obs['state']))
+    done = np.asarray(state.done) > 0
+    success = np.asarray(state.metrics['success']) > 0
+    truncated = np.asarray(state.info['truncation']) > 0
+    assert (done == (success | truncated)).all()
+    assert (np.asarray(state.reward)[success] > SUCCESS_BONUS - 0.5).all()
+    successes += success.sum()
+  assert successes > 0
 
 
 def test_timeout_truncates():
   env, state, step = start('pick', 4)
-  hold = jnp.zeros((4, ACTION_DIM)).at[:, 4:].set(-1.0)
+  hold = jnp.zeros((4, ACTION_DIM)).at[:, 4].set(-1.0)
   for _ in range(EPISODE):
     state = step(state, hold)
   assert (np.asarray(state.done) == 1).all()

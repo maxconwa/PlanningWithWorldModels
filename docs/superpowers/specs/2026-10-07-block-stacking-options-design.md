@@ -139,7 +139,7 @@ a block. An invalid option does nothing for 10 control steps, so it is never
 free.
 
 Each option runs a learned skill (below) on the raw action space until the
-skill signals that it is done, or for at most 150 control steps.
+skill's success condition holds, or for at most 150 control steps.
 
 ## Skills
 
@@ -150,9 +150,11 @@ Two goal-conditioned skills on the raw action space:
 - **Place(target).** Target is a colour or the table. Success: held block
   released and resting on the target, gripper open and raised 5 cm.
 
-Each skill outputs the 5 raw action dimensions plus a **terminate** logit.
-Choosing to terminate ends the skill: it earns a bonus if the success
-condition holds and a penalty otherwise.
+Each skill outputs the 5 raw action dimensions. The environment ends a skill
+on the step its success condition holds (checked from the simulator state),
+or after 150 control steps; success earns a bonus. A learned terminate output
+was tried first and dropped: PPO policies learned to end skills at once, or
+just short of the 5 cm lift.
 
 Each skill is trained in two stages:
 
@@ -163,8 +165,8 @@ Each skill is trained in two stages:
 2. **Image student.** The deployed skill: a CNN policy on `workspace`,
    `wrist`, `arm` and the target, in JAX/Flax. It is trained with DAgger on
    the batched simulator with rendering, on the GPU: the student acts, the
-   teacher labels each visited state with its action and terminate decision,
-   and the student is trained on the growing dataset.
+   teacher labels each visited state with its action, and the student is
+   trained on the growing dataset.
 
 Start states for skill training are drawn from the same distribution as
 stacking episodes. Place starts with a block already in the gripper, set
@@ -293,7 +295,7 @@ the next starts.
    DreamerV3 run on `custom_stack`. Checks: unit tests, grasp-and-lift, and
    the Dreamer run.
 2. **Skills.** State teachers by Brax PPO, then image students by DAgger,
-   both with learned termination, all on the GPU. Checks: the teacher gate,
+   ending on success or timeout, all on the GPU. Checks: the teacher gate,
    then the student gate.
 3. **Raw-action agent.** DreamerV3 on `custom_stack`: an N = 2 pilot to
    measure learning speed, then the main run over N in {2, 3, 4}.

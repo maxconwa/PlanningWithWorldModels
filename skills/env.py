@@ -3,8 +3,9 @@
 Each world starts from the stacking start distribution: for pick, the arm
 at home and a clear block to pick; for place, a block already held above
 the others and a target for it (a clear block or the table). The policy
-moves the arm through the raw 5-D action and ends the skill by setting
-action[5] > 0. A world whose episode ended restarts within the same step,
+moves the arm through the raw 5-D action. The environment ends a skill on
+the step its success condition holds, or after tasks.EPISODE steps. A world
+whose episode ended restarts within the same step,
 with its own new start (Brax's AutoResetWrapper would replay its first one),
 so PPO runs with wrap_env=False and the bookkeeping in brax_util.
 """
@@ -24,9 +25,9 @@ from skills.brax_util import episode_info, track_episode
 
 STATE_DIM = 85
 PROPRIO_DIM = 25
-ACTION_DIM = 6
+ACTION_DIM = 5
 SETTLE = 10  # Physics steps after a new start.
-METRICS = ('success', 'stopped')
+METRICS = ('success',)
 
 
 class SkillEnv(Env):
@@ -72,18 +73,15 @@ class SkillEnv(Env):
     a = jnp.clip(action, -1.0, 1.0)
     d = state.pipeline_state
     ctrl, target, yaw = self.control.act(
-        d, info['ee_target'], info['ee_yaw'], a[:, :5])
+        d, info['ee_target'], info['ee_yaw'], a)
     d = self.sim.physics(d, ctrl, scene.SUBSTEPS)
     steps = info['steps'] + 1
     phi, success = self._progress(d, info['task'])
-    stopped = a[:, 5] > 0
     timeout = steps >= tasks.EPISODE
-    bonus = jnp.where(success, tasks.SUCCESS_BONUS, -tasks.FAIL_PENALTY)
-    reward = phi - info['phi'] + jnp.where(stopped, bonus, 0.0)
-    done = stopped | timeout
-    metrics = {'success': (stopped & success).astype(jnp.float32),
-               'stopped': stopped.astype(jnp.float32)}
-    info = track_episode(info, reward, done, timeout & ~stopped, metrics)
+    reward = phi - info['phi'] + jnp.where(success, tasks.SUCCESS_BONUS, 0.0)
+    done = success | timeout
+    metrics = {'success': success.astype(jnp.float32)}
+    info = track_episode(info, reward, done, timeout & ~success, metrics)
     info = dict(info, ee_target=target, ee_yaw=yaw, phi=phi, steps=steps)
     d, info = jax.lax.cond(
         done.any(), lambda: self._restart(d, info, done), lambda: (d, info))
