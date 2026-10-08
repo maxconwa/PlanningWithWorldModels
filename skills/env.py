@@ -32,10 +32,10 @@ METRICS = ('success', 'stopped')
 class SkillEnv(Env):
 
   def __init__(self, skill, num_envs, cameras=False, prestack=0.3,
-               size=(64, 64)):
+               stacked=0.0, size=(64, 64)):
     assert skill in ('pick', 'place'), skill
     self.skill, self.num_envs, self.cameras = skill, num_envs, cameras
-    self.prestack = prestack
+    self.prestack, self.stacked = prestack, stacked
     self.sim = Sim(num_envs, size, cameras=cameras)
     self.control = Controller(self.sim)
 
@@ -101,8 +101,8 @@ class SkillEnv(Env):
     """New starts for every world, settled."""
     d = self.sim.home(d)
     if self.skill == 'pick':
-      present, pos, yaws, target = jax.vmap(tasks.pick_start, (0, None))(
-          keys, self.prestack)
+      present, pos, yaws, target = jax.vmap(
+          tasks.pick_start, (0, None, None))(keys, self.prestack, self.stacked)
       held_block = target
     else:
       present, pos, yaws, held_block, target, site, yaw = jax.vmap(

@@ -17,6 +17,9 @@ from environments.stack_task import NONE, XY_TOL, Z_TOL, sample_start
 
 EPISODE = 150  # Control steps before a skill times out.
 LIFT = 0.05  # How far a picked block must clear what is under it.
+# The pick potential keeps rising to here, past LIFT, so a policy ends the
+# skill clear of the success line rather than on it.
+LIFT_REWARD = 0.07
 RAISE = 0.05  # How far the gripper rises above a placed block.
 TABLE = NONE  # Place target index for the table.
 SUCCESS_BONUS = 5.0
@@ -68,7 +71,7 @@ def pick_progress(pos, present, held, site, c):
   """Potential and success for picking block c: reach it, grasp it, lift
   it LIFT clear."""
   grasped = held[c].astype(jnp.float32)
-  lift = jnp.clip(clearance(pos, present, c) / LIFT, 0.0, 1.0)
+  lift = jnp.clip(clearance(pos, present, c) / LIFT_REWARD, 0.0, 1.0)
   phi = -jnp.linalg.norm(site - pos[c]) + grasped + 2.0 * grasped * lift
   return phi, held[c] & (clearance(pos, present, c) >= LIFT)
 
@@ -95,12 +98,16 @@ def _present(goal):
   return (_IDX[:, None] == goal[None, :]).any(1)
 
 
-def pick_start(key, prestack):
-  """A stacking layout and a clear block to pick."""
-  layout_key, choice_key = jax.random.split(key)
+def pick_start(key, prestack, stacked=0.0):
+  """A stacking layout and a clear block to pick. With probability
+  `stacked` the block is one resting on another, when there is one."""
+  layout_key, choice_key, coin = jax.random.split(key, 3)
   _, goal, pos, yaws = sample_start(layout_key, 0, prestack)
   present = _present(goal)
-  target = _choose(choice_key, clear_mask(pos, present))
+  clear = clear_mask(pos, present)
+  on_block = clear & (pos[:, 2] > HALF + Z_TOL)
+  favour = (jax.random.uniform(coin) < stacked) & on_block.any()
+  target = _choose(choice_key, jnp.where(favour, on_block, clear))
   return present, pos, yaws, target
 
 

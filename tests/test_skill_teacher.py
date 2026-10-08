@@ -48,3 +48,15 @@ def test_teacher_keeps_its_best_evaluation(tmp_path):
   best = max(rows, key=lambda r: r['eval/episode_success'])
   assert config['best_step'] == best['step']
   assert config['best_success'] == best['eval/episode_success']
+
+
+def test_teacher_trains_on_more_stacked_pick_starts(tmp_path):
+  """Training favours stacked pick targets; evaluation keeps the spec's
+  start mix, so the gate measures the real task."""
+  from skills.teacher import PPO, TRAIN_STARTS
+  assert TRAIN_STARTS['pick']['stacked'] > 0
+  assert PPO['learning_rate'] <= 3e-4
+  config = train('pick', tmp_path, num_envs=64, timesteps=64 * 10 * 4,
+                 batch_size=2, num_minibatches=32, num_evals=2,
+                 num_eval_envs=16)
+  assert config['train_starts'] == TRAIN_STARTS['pick']

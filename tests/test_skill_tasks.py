@@ -93,3 +93,25 @@ def test_place_starts_put_the_block_in_reach_above_everything():
     assert target[i] != held[i]
     if target[i] != TABLE:
       assert present[i, target[i]]
+
+
+def test_pick_potential_keeps_rising_past_the_success_lift():
+  """The reward keeps paying a little past LIFT, so a policy ends the skill
+  safely clear of the success line rather than on it."""
+  present = jnp.array([True, False, False, False])
+  held = NOBODY.at[0].set(True)
+  at_line = layout(r=(0.5, 0, HALF + LIFT))
+  past = layout(r=(0.5, 0, HALF + LIFT + 0.015))
+  phi_line, _ = pick_progress(at_line, present, held, at_line[0], 0)
+  phi_past, _ = pick_progress(past, present, held, past[0], 0)
+  assert float(phi_past) > float(phi_line) + 0.1
+
+
+def test_pick_starts_can_favour_stacked_targets():
+  keys = jax.random.split(jax.random.PRNGKey(4), 1024)
+  present, pos, _, target = jax.vmap(pick_start, (0, None, None))(
+      keys, 1.0, 0.8)
+  z = np.asarray(pos)[np.arange(1024), np.asarray(target), 2]
+  assert (z > HALF + 1e-3).mean() >= 0.7
+  for i in range(64):
+    assert bool(clear_mask(pos[i], present[i])[target[i]])

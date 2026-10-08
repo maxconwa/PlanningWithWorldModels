@@ -27,11 +27,17 @@ import time  # noqa: E402
 import jax  # noqa: E402
 
 TEACHER = dict(policy=(256, 256, 256), value=(256,) * 5)
+# A learning rate of 1e-3 with 8 passes per batch made the pick teacher
+# swing between 50% and 75% success and collapse late.
 PPO = dict(
     episode_length=150, unroll_length=10, num_minibatches=32,
-    num_updates_per_batch=8, discounting=0.97, learning_rate=1e-3,
+    num_updates_per_batch=4, discounting=0.97, learning_rate=3e-4,
     entropy_cost=1e-2, batch_size=256, num_evals=10, num_eval_envs=256,
     normalize_observations=True, reward_scaling=1.0)
+# Starts the teacher trains on. Only about a fifth of pick targets sit on
+# another block under the spec's mix, and those were the ones it failed;
+# evaluation keeps the spec's mix.
+TRAIN_STARTS = dict(pick=dict(prestack=0.6, stacked=0.5), place=dict())
 
 
 def network_factory():
@@ -75,7 +81,7 @@ def train(skill, out, num_envs=8192, timesteps=100_000_000, seed=0,
         pickle.dump(jax.device_get(params), f)
 
   ppo.train(
-      environment=SkillEnv(skill, num_envs),
+      environment=SkillEnv(skill, num_envs, **TRAIN_STARTS[skill]),
       eval_env=SkillEnv(skill, settings['num_eval_envs']),
       wrap_env=False, num_envs=num_envs, num_timesteps=timesteps,
       network_factory=network_factory(), seed=seed, progress_fn=progress,
@@ -84,6 +90,7 @@ def train(skill, out, num_envs=8192, timesteps=100_000_000, seed=0,
                 seed=seed, network=TEACHER, ppo=settings,
                 control_steps=max(last['step'], timesteps),
                 best_step=best['step'], best_success=best['success'],
+                train_starts=TRAIN_STARTS[skill],
                 seconds=time.time() - start)
   (out / 'config.json').write_text(json.dumps(config, indent=2))
   return config

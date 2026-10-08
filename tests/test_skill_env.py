@@ -82,3 +82,11 @@ def test_scripted_place_succeeds():
   success, ended = run(env, state, step, scripted.place)
   assert ended.all()
   assert success.mean() >= 0.8, success.mean()
+
+
+def test_pick_env_can_favour_stacked_targets():
+  env = SkillEnv('pick', 64, prestack=1.0, stacked=0.8)
+  state = jax.jit(env.reset)(jax.random.split(jax.random.PRNGKey(5), 64))
+  pos = np.asarray(env.sim.block_pos(state.pipeline_state))
+  target = np.asarray(state.info['task']['target'])
+  assert (pos[np.arange(64), target, 2] > 0.03).mean() >= 0.7
