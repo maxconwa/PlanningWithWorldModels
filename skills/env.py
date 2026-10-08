@@ -120,8 +120,11 @@ class SkillEnv(Env):
 
   def _restart(self, d, info, mask):
     """New starts for the worlds in `mask`; the others are untouched."""
+    # Only restarted worlds draw a new key, so a world's sequence of starts
+    # does not depend on when the others' episodes end.
     split = jax.vmap(jax.random.split)(info['rng'])
-    rng, keys = split[:, 0], split[:, 1]
+    rng = jnp.where(mask[:, None], split[:, 0], info['rng'])
+    keys = split[:, 1]
     fresh, task = self._fresh(d, keys)
     m = mask[:, None]
     d = self.sim.forward(d.replace(

@@ -56,7 +56,7 @@ def test_ppo_learns_a_self_resetting_batched_env():
   ppo.train(
       environment=Point(256), eval_env=Point(64), wrap_env=False,
       num_envs=256, num_eval_envs=64, episode_length=LENGTH,
-      num_timesteps=300_000, num_evals=3, batch_size=8,
+      num_timesteps=1_000_000, num_evals=3, batch_size=8,
       num_minibatches=32, unroll_length=10, learning_rate=3e-3,
       network_factory=_networks(),
       progress_fn=lambda step, m: rewards.append(

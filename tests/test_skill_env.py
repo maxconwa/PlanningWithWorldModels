@@ -96,3 +96,27 @@ def test_pick_env_can_favour_stacked_targets():
   pos = np.asarray(env.sim.block_pos(state.pipeline_state))
   target = np.asarray(state.info['task']['target'])
   assert (pos[np.arange(64), target, 2] > 0.03).mean() >= 0.7
+
+
+def test_a_restart_leaves_the_other_worlds_alone():
+  """Restarting one world must not change how the others evolve; otherwise
+  success depends on when other episodes end and on the batch size."""
+  def trajectory(restart_world_0):
+    env, state, step = start('pick', 8, seed=6)
+    for _ in range(15):
+      state = step(state, scripted.pick(state.obs['state']))
+    if restart_world_0:
+      mask = jnp.zeros(8, bool).at[0].set(True)
+      d, info = jax.jit(env._restart)(state.pipeline_state, state.info, mask)
+      state = state.replace(pipeline_state=d, info=info)
+    seen, done = [], []
+    for _ in range(30):
+      state = step(state, scripted.pick(state.obs['state']))
+      seen.append(np.asarray(state.obs['state'])[1:])
+      done.append(np.asarray(state.done)[1:])
+    return np.array(seen), np.array(done)
+  (seen_a, done_a), (seen_b, done_b) = trajectory(True), trajectory(False)
+  np.testing.assert_array_equal(done_a, done_b)
+  # Float32 rounding from forwarding twice grows to a few mm through
+  # contacts; the bugs this guards against moved worlds by 10 cm or more.
+  np.testing.assert_allclose(seen_a, seen_b, atol=2e-2)

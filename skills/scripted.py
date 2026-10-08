@@ -47,9 +47,13 @@ def pick(state):
   p = s['pos'][rows, s['target']]
   held = s['held'][rows, s['target']]
   turn, aligned = _turn(s['yaw'], _block_yaw(s['quat'][rows, s['target']]))
-  xy_ok = jnp.linalg.norm(p[:, :2] - s['ee'][:, :2], axis=-1) < ALIGN
+  xy_err = jnp.linalg.norm(p[:, :2] - s['ee'][:, :2], axis=-1)
+  # Start down once lined up; once low, keep going down unless the gripper
+  # has drifted well off, rather than climbing back to re-align.
+  low = s['ee'][:, 2] < p[:, 2] + 0.05
+  descend = jnp.where(low, xy_err < 2 * ALIGN, (xy_err < ALIGN) & aligned)
   above = p + jnp.array([0.0, 0.0, 0.08])
-  want = jnp.where((xy_ok & aligned)[:, None], p, above)
+  want = jnp.where(descend[:, None], p, above)
   near = jnp.linalg.norm(s['ee'] - p, axis=-1) < ALIGN
   want = jnp.where(held[:, None], s['ee'] + jnp.array([0.0, 0.0, 0.03]),
                    want)

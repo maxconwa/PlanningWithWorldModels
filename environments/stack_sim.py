@@ -81,9 +81,15 @@ class Sim:
     return self.forward(d.replace(qpos=qpos, qvel=qvel))
 
   def physics(self, d, ctrl, steps):
+    """`steps` physics steps, ending with a forward pass. A step leaves
+    positions and accelerations from before its integration, and the next
+    step warm-starts its solver from them; recomputing them here keeps every
+    world's next step the same whether or not some other world was just
+    reset (a reset runs forward on the whole batch)."""
     step = jax.vmap(mjx.step, in_axes=(None, 0))
     d = d.replace(ctrl=ctrl)
-    return jax.lax.fori_loop(0, steps, lambda _, d: step(self.model, d), d)
+    d = jax.lax.fori_loop(0, steps, lambda _, d: step(self.model, d), d)
+    return self.forward(d)
 
   def forward(self, d):
     return jax.vmap(mjx.forward, in_axes=(None, 0))(self.model, d)
