@@ -32,8 +32,15 @@ TEACHER = dict(policy=(256, 256, 256), value=(256,) * 5)
 PPO = dict(
     episode_length=150, unroll_length=10, num_minibatches=32,
     num_updates_per_batch=4, discounting=0.97, learning_rate=3e-4,
-    entropy_cost=1e-2, batch_size=256, num_evals=10, num_eval_envs=256,
-    normalize_observations=True, reward_scaling=1.0)
+    entropy_cost=1e-2, batch_size=192, num_evals=10, num_eval_envs=256,
+    normalize_observations=True, reward_scaling=1.0,
+    # Block velocities and absent-block slots are almost always constant;
+    # without a floor on their running std, a rare change is divided by
+    # ~1e-6 and the value loss blows up.
+    normalize_observations_std_eps=0.05)
+# Worlds per PPO batch; a multiple of batch_size * num_minibatches. 8192
+# filled the 16 GB GPU once every step ended with a forward pass.
+NUM_ENVS = 6144
 # Starts the teacher trains on. Only about a fifth of pick targets sit on
 # another block under the spec's mix, and those were the ones it failed;
 # evaluation keeps the spec's mix.
@@ -49,7 +56,7 @@ def network_factory():
       policy_obs_key='state', value_obs_key='state')
 
 
-def train(skill, out, num_envs=8192, timesteps=100_000_000, seed=0,
+def train(skill, out, num_envs=NUM_ENVS, timesteps=100_000_000, seed=0,
           **overrides):
   from brax.training.agents.ppo import train as ppo
   from skills.env import SkillEnv
@@ -100,7 +107,7 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--skill', choices=['pick', 'place'], required=True)
   parser.add_argument('--timesteps', type=int, default=100_000_000)
-  parser.add_argument('--num-envs', type=int, default=8192)
+  parser.add_argument('--num-envs', type=int, default=NUM_ENVS)
   parser.add_argument('--seed', type=int, default=0)
   parser.add_argument('--entropy-cost', type=float, default=PPO['entropy_cost'])
   args = parser.parse_args()

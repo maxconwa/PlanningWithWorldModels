@@ -60,3 +60,12 @@ def test_teacher_trains_on_more_stacked_pick_starts(tmp_path):
                  batch_size=2, num_minibatches=32, num_evals=2,
                  num_eval_envs=16)
   assert config['train_starts'] == TRAIN_STARTS['pick']
+
+
+def test_observation_normaliser_has_a_floor():
+  """Block velocities and absent-block slots are almost always constant; a
+  zero floor on their running std divided rare changes by ~1e-6 and blew the
+  value loss up to 1e11."""
+  from skills.teacher import NUM_ENVS, PPO
+  assert PPO['normalize_observations_std_eps'] >= 0.01
+  assert NUM_ENVS % (PPO['batch_size'] * PPO['num_minibatches']) == 0
