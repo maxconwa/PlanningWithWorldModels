@@ -21,7 +21,7 @@ to 22 cm. Placing on the table puts the block on the nearest free spot.
   teachers the students learn from (pick 100%, place 98.2% of 500 starts).
 - `student.py`: the image students (a CNN over both cameras, the arm, the
   target and the time fraction), distilled by DAgger (pick 97.8%, place
-  91.6% of 500 starts); `--teacher ppo` uses a
+  97.6% of 500 starts; place with `--iterations 45`); `--teacher ppo` uses a
   PPO teacher instead of the scripted one.
 - `teacher.py`: PPO state teachers (Brax). The best pick teacher reaches
   73.6%; improving them is a follow-up.
