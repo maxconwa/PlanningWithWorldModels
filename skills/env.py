@@ -1,8 +1,9 @@
 """Batched Brax environments for the pick and place skills.
 
-Each world starts from the stacking start distribution: for pick, the arm
-at home and a clear block to pick; for place, a block already held above
-the others and a target for it (a clear block or the table). The policy
+Each world starts from the stacking start distribution: for pick, a clear
+block to pick, with the arm at home or where a place leaves it; for place,
+a block already held clear of the others, as a pick leaves it, and a target
+for it (a clear block or the table). The policy
 moves the arm through the raw 5-D action. The environment ends a skill on
 the step its success condition holds, or after tasks.EPISODE steps. A world
 whose episode ended restarts within the same step,
@@ -42,10 +43,10 @@ def student_proprio(arm, target, steps):
 class SkillEnv(Env):
 
   def __init__(self, skill, num_envs, cameras=False, prestack=0.3,
-               stacked=0.0, size=(64, 64)):
+               stacked=0.0, size=(64, 64), home=tasks.HOME_SHARE):
     assert skill in ('pick', 'place'), skill
     self.skill, self.num_envs, self.cameras = skill, num_envs, cameras
-    self.prestack, self.stacked = prestack, stacked
+    self.prestack, self.stacked, self.home = prestack, stacked, home
     self.sim = Sim(num_envs, size, cameras=cameras)
     self.control = Controller(self.sim)
 
@@ -111,6 +112,17 @@ class SkillEnv(Env):
       present, pos, yaws, target = jax.vmap(
           tasks.pick_start, (0, None, None))(keys, self.prestack, self.stacked)
       held_block = target
+      # Away from home, the arm starts where a place leaves it.
+      site, yaw = jax.vmap(tasks.arm_start)(
+          jax.vmap(lambda k: jax.random.fold_in(k, 7))(keys), pos, present)
+      at_home = jax.vmap(lambda k: jax.random.uniform(
+          jax.random.fold_in(k, 8)) < self.home)(keys)
+      mats = jax.vmap(rot_z)(yaw) @ self.control.home_mat
+      q = jax.vmap(lambda qpos, p, m: self.control.solve(
+          qpos, p, m, iters=30))(d.qpos, site, mats)
+      q = jnp.where(at_home[:, None], d.qpos[:, :7], q)
+      d = d.replace(qpos=d.qpos.at[:, :7].set(q),
+                    ctrl=d.ctrl.at[:, :7].set(q))
     else:
       present, pos, yaws, held_block, target, site, yaw = jax.vmap(
           tasks.place_start, (0, None))(keys, self.prestack)
@@ -162,7 +174,7 @@ class SkillEnv(Env):
       return jax.vmap(tasks.pick_progress)(
           pos, task['present'], held, site, task['target'])
     return jax.vmap(tasks.place_progress)(
-        pos, held, site, opening, task['held_block'], task['target'])
+        pos, task['present'], held, site, opening, task['held_block'], task['target'])
 
   def _obs(self, d, info):
     task = info['task']

@@ -3,7 +3,10 @@
 The options of the block-stacking experiment: `pick(colour)` and
 `place_on(colour | table)`, each a policy on the raw 5-D end-effector action.
 The environment ends a skill on the step its success condition holds, or
-after 150 control steps.
+after 150 control steps. Starts are where other skills leave off: pick
+with the arm at home or raised over the blocks, as a place leaves it; place
+with the block from just clear of what is under it, as a pick leaves it, up
+to 22 cm. Placing on the table puts the block on the nearest free spot.
 
     python skills/evaluate.py --skill pick --who scripted   # teacher gate
     python skills/student.py --skill pick --iterations 30   # image student, DAgger
@@ -15,7 +18,7 @@ after 150 control steps.
 - `tasks.py`: starts, success, and the shaped potentials PPO teachers learn
   from.
 - `scripted.py`: scripted controllers from privileged state. They are the
-  teachers the students learn from (pick 100%, place 96.6% of 500 starts).
+  teachers the students learn from (pick 100%, place 98.2% of 500 starts).
 - `student.py`: the image students (a CNN over both cameras, the arm, the
   target and the time fraction), distilled by DAgger; `--teacher ppo` uses a
   PPO teacher instead of the scripted one.

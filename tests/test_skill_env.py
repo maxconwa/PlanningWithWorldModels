@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from environments import stack_scene as scene
 from skills import scripted
 from skills.env import ACTION_DIM, PROPRIO_DIM, STATE_DIM, SkillEnv
 from skills.tasks import EPISODE, SUCCESS_BONUS
@@ -49,6 +50,17 @@ def test_place_start_holds_the_block():
   held = np.asarray(env.held(state))
   block = np.asarray(state.info['task']['held_block'])
   assert held[np.arange(64), block].mean() >= 0.95
+
+
+def test_pick_starts_put_the_arm_over_the_blocks_or_at_home():
+  env = SkillEnv('pick', 64, home=0.5)
+  state = jax.jit(env.reset)(jax.random.split(jax.random.PRNGKey(2), 64))
+  d = state.pipeline_state
+  site = np.asarray(env.sim.site_pos(d))
+  home = np.asarray(env.sim.site_pos(env.sim.forward(env.sim.home(d))))
+  at_home = np.linalg.norm(site - home, axis=-1) < 0.01
+  assert 10 < at_home.sum() < 54
+  assert (np.asarray(env.sim.opening(d)) > scene.OPEN_WIDTH).all()
 
 
 def test_success_ends_the_skill_with_the_bonus():

@@ -2,11 +2,13 @@
 skill environment can be solved and that its success is detected. They read
 only obs['state'] (layout in skills/env.py)."""
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
 from environments.stack_control import MAX_STEP, MAX_YAW
 from environments.stack_scene import HALF
+from skills import tasks
 
 ALIGN = 0.008  # How close in xy before descending, metres.
 YAW_OK = 0.05
@@ -72,7 +74,7 @@ def place(state):
   p = s['pos'][rows, h]
   t = s['target']
   on_block = s['pos'][rows, jnp.minimum(t, 3)] + jnp.array([0, 0, 2 * HALF])
-  table = jnp.stack([p[:, 0], p[:, 1], jnp.full_like(p[:, 0], HALF)], -1)
+  table = jax.vmap(tasks.table_spot)(s['pos'], s['present'], h)
   goal = jnp.where((t == 4)[:, None], table, on_block)
   goal_yaw = jnp.where(t == 4, _block_yaw(s['quat'][rows, h]),
                        _block_yaw(s['quat'][rows, jnp.minimum(t, 3)]))

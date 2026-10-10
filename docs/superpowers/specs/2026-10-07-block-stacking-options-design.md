@@ -157,7 +157,7 @@ was tried first and dropped: PPO policies learned to end skills at once, or
 just short of the 5 cm lift.
 
 Each skill is trained in two stages. The state teachers below are scripted
-controllers for now (`skills/scripted.py`; pick 100%, place 96.6% of 500
+controllers for now (`skills/scripted.py`; pick 100%, place 98.2% of 500
 starts): PPO teachers reached 74% on pick after 200M steps, so improving
 them is a follow-up.
 

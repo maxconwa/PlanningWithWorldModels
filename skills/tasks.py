@@ -12,7 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from environments.stack_scene import COLORS, HALF, OPEN_WIDTH
-from environments.stack_task import NONE, XY_TOL, Z_TOL, sample_start
+from environments.stack_task import (
+    NONE, SLOTS, XY_TOL, Z_TOL, sample_start)
 
 EPISODE = 150  # Control steps before a skill times out.
 LIFT = 0.05  # How far a picked block must clear what is under it.
@@ -23,10 +24,14 @@ RAISE = 0.05  # How far the gripper rises above a placed block.
 TABLE = NONE  # Place target index for the table.
 SUCCESS_BONUS = 5.0
 NEAR_XY = 0.03  # Blocks closer than this horizontally are in one stack.
-SITE_LO = (0.40, -0.15, 0.17)  # Where place starts hold the block.
-SITE_HI = (0.60, 0.15, 0.22)
+FREE = 0.06  # Table cells closer than this to another block are taken.
+ARM_LO = (0.35, -0.18)  # Gripper xy range of starts away from home.
+ARM_HI = (0.65, 0.18)
+SITE_HI = (0.65, 0.18, 0.22)  # Highest a place start holds the block.
+HOME_SHARE = 0.5  # Share of pick starts with the arm at home.
 
 _IDX = jnp.arange(len(COLORS))
+_SLOTS = jnp.asarray(SLOTS, jnp.float32)
 
 
 def clear_mask(pos, present):
@@ -57,12 +62,33 @@ def resting_on(pos, h, t):
   return jnp.where(t == TABLE, on_table, on_block)
 
 
-def place_goal(pos, h, t):
-  """Where block h's centre goes: on top of block t, or straight down onto
-  the table."""
-  p, q = pos[h], pos[jnp.minimum(t, len(COLORS) - 1)]
-  table = jnp.stack([p[0], p[1], jnp.asarray(HALF, p.dtype)])
-  return jnp.where(t == TABLE, table, q + jnp.array([0.0, 0.0, 2 * HALF]))
+def top_under(pos, present, xy):
+  """The highest top of the present blocks within FREE of xy, or 0."""
+  near = (jnp.linalg.norm(pos[:, :2] - xy, axis=-1) < FREE) & present
+  return jnp.max(jnp.where(near, pos[:, 2] + HALF, 0.0))
+
+
+def table_spot(pos, present, h):
+  """Where block h goes on the table: straight down when that spot is at
+  least FREE from every other present block, else the nearest such cell of
+  the start grid."""
+  others = present & (_IDX != h)
+  own = jnp.where(others, jnp.linalg.norm(
+      pos[:, :2] - pos[h, :2], axis=-1) >= FREE, True).all()
+  dist = jnp.linalg.norm(_SLOTS[:, None] - pos[None, :, :2], axis=-1)
+  free = jnp.where(others[None], dist >= FREE, True).all(1)
+  near = jnp.linalg.norm(_SLOTS - pos[h, :2], axis=-1)
+  cell = _SLOTS[jnp.argmin(jnp.where(free, near, jnp.inf))]
+  xy = jnp.where(own, pos[h, :2], cell)
+  return jnp.concatenate([xy, jnp.full((1,), HALF, pos.dtype)])
+
+
+def place_goal(pos, present, h, t):
+  """Where block h's centre goes: on top of block t, or a free spot on the
+  table."""
+  q = pos[jnp.minimum(t, len(COLORS) - 1)]
+  return jnp.where(t == TABLE, table_spot(pos, present, h),
+                   q + jnp.array([0.0, 0.0, 2 * HALF]))
 
 
 def pick_progress(pos, present, held, site, c):
@@ -74,10 +100,10 @@ def pick_progress(pos, present, held, site, c):
   return phi, held[c] & (clearance(pos, present, c) >= LIFT)
 
 
-def place_progress(pos, held, site, opening, h, t):
+def place_progress(pos, present, held, site, opening, h, t):
   """Potential and success for placing block h on t: bring it to the
   goal, let go, open, and raise the gripper RAISE above it."""
-  goal = place_goal(pos, h, t)
+  goal = place_goal(pos, present, h, t)
   resting = ~held[h] & resting_on(pos, h, t)
   opened = opening > OPEN_WIDTH
   raised = site[2] - (pos[h, 2] + HALF)
@@ -109,20 +135,37 @@ def pick_start(key, prestack, stacked=0.0):
   return present, pos, yaws, target
 
 
+def arm_start(key, pos, present):
+  """A gripper site and yaw over the workspace, RAISE or more above the
+  blocks under it, as a place leaves the arm."""
+  k1, k2, k3 = jax.random.split(key, 3)
+  xy = jax.random.uniform(k1, (2,), minval=jnp.array(ARM_LO),
+                          maxval=jnp.array(ARM_HI))
+  z = jnp.maximum(top_under(pos, present, xy), 2 * HALF) + RAISE
+  z = z + jax.random.uniform(k2, (), maxval=0.15)
+  yaw = jax.random.uniform(k3, (), minval=-np.pi / 4, maxval=np.pi / 4)
+  return jnp.concatenate([xy, z[None]]), yaw
+
+
 def place_start(key, prestack):
   """A stacking layout with one clear block moved into the gripper, held
-  above everything else, and a place target for it: another clear block or
-  the table."""
+  from just clear of the blocks under it (as a pick leaves it) up to
+  SITE_HI, and a place target for it: another clear block or the
+  table."""
   keys = jax.random.split(key, 5)
   _, goal, pos, yaws = sample_start(keys[0], 0, prestack)
   present = _present(goal)
   held = _choose(keys[1], clear_mask(pos, present))
-  site = jax.random.uniform(keys[2], (3,), minval=jnp.array(SITE_LO),
-                            maxval=jnp.array(SITE_HI))
+  rest = present & (_IDX != held)
+  xy = jax.random.uniform(keys[2], (2,), minval=jnp.array(ARM_LO),
+                          maxval=jnp.array(ARM_HI))
+  low = top_under(pos, rest, xy) + HALF + 0.01
+  z = jax.random.uniform(jax.random.fold_in(keys[2], 1), (), minval=low,
+                         maxval=jnp.maximum(low, SITE_HI[2]))
+  site = jnp.concatenate([xy, z[None]])
   yaw = jax.random.uniform(keys[3], (), minval=-np.pi / 4, maxval=np.pi / 4)
   pos = pos.at[held].set(site)
   yaws = yaws.at[held].set(yaw)
-  rest = present & (_IDX != held)
   options = jnp.concatenate([clear_mask(pos, rest), jnp.array([True])])
   target = _choose(keys[4], options)
   return present, pos, yaws, held, target, site, yaw
