@@ -17,6 +17,7 @@ import importlib
 REGISTRY = {
     'catch': 'environments.catch:Catch',
     'stack': 'environments.stack:Stack',
+    'stack_options': 'environments.stack_options:StackOptions',
     'tetris': 'environments.tetris:Tetris',
 }
 

@@ -30,6 +30,18 @@ all other flags are DreamerV3's.
   camera resolution. Block poses are not observed; `privileged()` returns
   them. Install with `pip install -c constraints.txt mujoco==3.15.0
   'mujoco-mjx[warp]==3.15.0'`.
+- `stack_options`: the same task through 9 options, each running a trained
+  image skill from `skills/` (`outputs/train/skill_{pick,place}_student`).
+  Options 0-3 pick a colour, 4-7 place the held block on a colour, 8 on the
+  table. An option is valid when it makes sense (pick with an empty
+  gripper and a clear block; place while holding, onto a clear block other
+  than the held one, or the table); `privileged()['option_mask']` says
+  which are. A valid option runs until its skill succeeds or for 150
+  control steps, an invalid one holds still for 10, and a place that
+  completes the tower holds still until success is decided; all end with
+  the episode. The reward is summed over the option and `log/duration`
+  counts its control steps. Worlds whose option has ended are frozen until
+  every world's has. Takes the `stack` options (`--env.stack.n`).
 
 ## Playing by hand
 
