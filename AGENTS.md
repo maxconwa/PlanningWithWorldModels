@@ -112,6 +112,11 @@ under the same emulator settings and number of episodes.
   `MALLOC_MMAP_THRESHOLD_=1048576`: replay chunks are 12 MB arrays, and
   glibc otherwise keeps freed ones in its heap, so the process grew about
   0.1 GB a minute until the kernel killed it.
+- `custom_stack_options` is the same task through pick and place options,
+  run by the trained students in `outputs/train/skill_{pick,place}_student`,
+  and takes the same flags and settings. DreamerV3's `run.steps` counts
+  options, so runs are compared with `custom_stack` at equal
+  `log/sim_steps` (control steps), not equal agent steps.
 - `dreamer_fixes.py` rebuilds DreamerV3's `Agent.report`, which fails with
   more than one image observation; `train.py` imports it.
 - Local training writes to `outputs/train/<run>/` and logs to

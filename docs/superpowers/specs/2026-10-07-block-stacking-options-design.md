@@ -306,7 +306,12 @@ the next starts.
    duration, summed reward, time-limit cut-off; checked by tests and a
    scripted N = 3 tower), then DreamerV3 on `custom_stack_options`: the N = 2
    pilot sets the budget from the mean option duration, then the main run at
-   the same control-step budget as stage 3.
+   the same control-step budget as stage 3. Measured: scripted towers
+   through the options reach 92.2% at N = 2 (options average 52.0 control
+   steps) and 53.1% at N = 3, where places onto two-block stacks hover
+   without lowering the block. The N = 2 pilot `stack_options_n2` runs
+   50,000 options, the raw pilot's 2,571,120 control steps at 52 per
+   option.
 5. **Planning and evaluation.** iCEM and sampled MuZero (sampled MuZero with
    K = 9 matches PUCT within noise on the option side; both beat a random
    baseline), the 2 x 3 table plus the extra PUCT and Gumbel rows, the
